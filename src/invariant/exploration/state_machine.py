@@ -20,7 +20,7 @@ from hypothesis.stateful import (
 )
 
 from invariant.adapters.base import Adapter
-from invariant.core.engine import Engine, RunFailure, StepRecord
+from invariant.core.engine import Engine, InconclusiveError, RunFailure, StepRecord
 from invariant.core.scenario import (
     CreateDocument,
     CreateOrg,
@@ -32,6 +32,7 @@ from invariant.core.scenario import (
     Role,
     UpdateDocument,
 )
+from invariant.evaluation.violations import Outcome
 
 from .operations import contents, roles
 
@@ -41,6 +42,7 @@ class ExplorationSink:
     """Collects what happened across all Hypothesis executions of one exploration."""
 
     executions: int = 0
+    #: Raised failures, plus INCONCLUSIVE steps a non-strict engine did not raise.
     failures: list[RunFailure] = field(default_factory=list)
 
 
@@ -65,15 +67,31 @@ def build_state_machine(
         def __init__(self) -> None:
             super().__init__()
             sink.executions += 1
+            self._inconclusive_seen = False
             self.engine = Engine(adapter_factory(), strict=strict)
             self.engine.reset()
 
         def _apply(self, op: Operation) -> StepRecord:
             try:
-                return self.engine.apply(op)
+                record = self.engine.apply(op)
             except RunFailure as failure:
                 sink.failures.append(failure)
                 raise
+            # Non-strict engines keep going after an INCONCLUSIVE step instead of
+            # raising. The run continues, but the step must still reach the sink:
+            # otherwise the exploration would be reported as PASS. The first such
+            # step per execution is enough (it has the shortest history).
+            if record.outcome is Outcome.INCONCLUSIVE and not self._inconclusive_seen:
+                self._inconclusive_seen = True
+                first = next(e for e in record.evaluations if e.outcome is Outcome.INCONCLUSIVE)
+                sink.failures.append(
+                    InconclusiveError(
+                        f"inconclusive at step {record.index}: {first.summary}",
+                        record,
+                        list(self.engine.history),
+                    )
+                )
+            return record
 
         @initialize(target=orgs)
         def provision_orgs(self) -> MultipleResults[str]:

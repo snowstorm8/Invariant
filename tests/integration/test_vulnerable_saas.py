@@ -3,6 +3,7 @@
 import pytest
 from vulnerable_saas.target import adapter_for, fixed_adapter, vulnerable_adapter
 
+from invariant.adapters.base import Action, Adapter, Observation
 from invariant.analysis.minimizer import minimize, violates
 from invariant.analysis.reproduction import replay
 from invariant.core.scenario import (
@@ -162,3 +163,61 @@ def test_runs_are_isolated_state_does_not_leak_between_replays():
     second = replay(s, vulnerable_adapter)
     assert first.outcome is second.outcome is Outcome.VIOLATION
     assert [r.status for r in first.history] == [r.status for r in second.history]
+
+
+# -- non-strict exploration must not turn INCONCLUSIVE into PASS -------------
+
+
+class BrokenReads(Adapter):
+    """A working target whose single-document reads always answer 500.
+
+    Reads are not used to verify writes, so a non-strict engine records the
+    step as INCONCLUSIVE and carries on instead of stopping the run.
+    """
+
+    reads = 0
+
+    def __init__(self, defects=frozenset()):
+        self.inner = adapter_for(defects)
+
+    def reset(self):
+        self.inner.reset()
+
+    def execute(self, call):
+        if call.action is Action.READ_DOCUMENT:
+            type(self).reads += 1
+            return Observation(status=500, body="boom")
+        return self.inner.execute(call)
+
+    def close(self):
+        self.inner.close()
+
+
+@pytest.mark.parametrize("strict", [True, False])
+def test_inconclusive_steps_never_yield_pass_regardless_of_strict(strict):
+    result = explore(BrokenReads, seed=1, max_examples=20, strict=strict)
+    assert result.outcome is Outcome.INCONCLUSIVE
+    assert result.report.finding.property_id == "EXEC"
+    assert result.report.finding.outcome is Outcome.INCONCLUSIVE
+    assert result.report.reproduced is True
+    assert isinstance(result.report.scenario.operations[-1], ReadDocument)
+
+
+def test_non_strict_exploration_continues_past_inconclusive_steps():
+    BrokenReads.reads = 0
+    result = explore(BrokenReads, seed=1, max_examples=20, strict=False)
+    assert result.report.executions >= 20  # the search was not cut short
+    assert BrokenReads.reads > len(result.report.steps)  # runs went on after a failed read
+
+
+def test_non_strict_violation_still_outranks_inconclusive():
+    result = explore(
+        lambda: BrokenReads(frozenset({"viewer-can-update"})), seed=0, strict=False
+    )
+    assert result.outcome is Outcome.VIOLATION
+    assert result.report.finding.property_id == "AZ-1"
+
+
+def test_non_strict_clean_target_still_passes():
+    result = explore(fixed_adapter, seed=0, max_examples=30, strict=False)
+    assert result.outcome is Outcome.PASS and result.report.finding is None
