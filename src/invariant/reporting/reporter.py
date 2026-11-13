@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib import resources
 from pathlib import Path
 
 from invariant import __version__
@@ -66,6 +67,28 @@ def load_report(path: Path) -> Report:
     return Report.model_validate_json(path.read_text())
 
 
+_REPORT_SLOT = "<!-- invariant:report -->"
+# Escaped so report content (e.g. a leaked "</script>" in a response excerpt) cannot
+# terminate the embedding <script> element; the result is still valid JSON.
+_SCRIPT_SAFE = str.maketrans({"<": "\\u003c", ">": "\\u003e", "&": "\\u0026"})
+
+
+def render_html(report: Report) -> str:
+    """Render REPORT as a self-contained HTML page (no network, no external assets)."""
+    template = (
+        resources.files("invariant.reporting")
+        .joinpath("viewer.html")
+        .read_text("utf-8")
+    )
+    payload = report.model_dump_json().translate(_SCRIPT_SAFE)
+    tag = f'<script id="invariant-report" type="application/json">{payload}</script>'
+    return template.replace(_REPORT_SLOT, tag, 1)
+
+
+def save_html(report: Report, path: Path) -> None:
+    path.write_text(render_html(report), encoding="utf-8")
+
+
 def render_text(report: Report) -> str:
     lines = [f"Invariant {report.tool_version} — target: {report.target}"]
     lines.append(f"Result: {report.outcome} ({report.executions} executions explored)")
@@ -95,7 +118,9 @@ def render_text(report: Report) -> str:
         lines += [
             "",
             "Reproduced by deterministic replay on a fresh target: "
-            + ("yes" if report.reproduced else "NO (flaky or non-deterministic target)"),
+            + (
+                "yes" if report.reproduced else "NO (flaky or non-deterministic target)"
+            ),
         ]
     lines += ["", report.note]
     return "\n".join(lines)
