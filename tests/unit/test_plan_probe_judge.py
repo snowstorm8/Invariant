@@ -197,7 +197,7 @@ def test_a_request_that_cannot_be_executed_is_inconclusive_for_the_properties_ne
 
 
 def test_planned_probes_are_taken_even_when_the_operation_got_no_response():
-    prop = Wants(TENANT_WRITE_ISOLATION, "org0")
+    prop = Wants(ROLE_WRITE_PERMISSION, "org0")  # claims the AZ-1 denial; the guard checks it
 
     def no_answer_to_writes(call):
         if call.action is Action.CREATE_DOCUMENT:

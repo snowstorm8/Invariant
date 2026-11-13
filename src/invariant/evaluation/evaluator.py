@@ -81,6 +81,10 @@ class Evaluator:
         attribution and ordering; each property only supplies its scope, its
         evidence requirements and a verdict. No I/O happens here.
         """
+        # Whether the property set can account for the policy's denials does not
+        # depend on the target, so it is checked before anything else, including
+        # the no-response shortcut below.
+        self._require_denials_covered(step)
         if not response.responded:
             return [self._inconclusive(EXECUTION.id, f"no response: {response.error}")]
 
@@ -94,22 +98,25 @@ class Evaluator:
                 )
             )
         parsed = {request: self._probe_result(probe) for request, probe in probes.items()}
-        judged_from_evidence: set[str] = set()
         for prop in self.properties:
             if not prop.applies(step):
                 continue
-            requests = prop.requires(step)
-            if requests:
-                judged_from_evidence.add(prop.id)
-            results.append(self._judge(prop, step, response, requests, parsed))
-        # A write the policy denied can only be judged from the state it left
-        # behind. If a denial names a property that did not ask for that
-        # evidence, it is not implemented: fail loudly rather than report
-        # nothing about it.
-        if isinstance(step.op, (CreateDocument, UpdateDocument, DeleteDocument)):
-            unjudged = [i for i in step.decision.property_ids if i not in judged_from_evidence]
-            assert not unjudged, f"denied write attributed to {unjudged}, which no property evaluates"
+            results.append(self._judge(prop, step, response, prop.requires(step), parsed))
         return results
+
+    def _require_denials_covered(self, step: Step) -> None:
+        """A write the policy denied can only be judged from the state it left
+        behind. If a denial names a property that did not ask for that
+        evidence, the property is not implemented: fail loudly rather than
+        report nothing about it. Depends only on the step and the configured
+        properties, never on the response."""
+        if not isinstance(step.op, (CreateDocument, UpdateDocument, DeleteDocument)):
+            return
+        judged_from_evidence = {
+            prop.id for prop in self.properties if prop.applies(step) and prop.requires(step)
+        }
+        unjudged = [i for i in step.decision.property_ids if i not in judged_from_evidence]
+        assert not unjudged, f"denied write attributed to {unjudged}, which no property evaluates"
 
     def evaluate(self, state: ModelState, step: ExecutedStep) -> list[Evaluation]:
         """Judge an executed step: ``judge`` on the probes it carries."""
