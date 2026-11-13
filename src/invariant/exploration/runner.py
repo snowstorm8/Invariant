@@ -30,8 +30,8 @@ class ExplorationResult:
 def _pick(failures: list[RunFailure]) -> RunFailure | None:
     """Prefer violations over inconclusive runs; within a class, the shortest scenario.
 
-    Hypothesis shrinks and then replays the minimal example last, so among equally
-    short candidates the latest one is the final minimal run.
+    Failures are collected in the order they occurred (Hypothesis runs generate-only,
+    so there is no shrink phase); among equally short candidates the latest one wins.
     """
     if not failures:
         return None

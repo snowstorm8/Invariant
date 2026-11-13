@@ -2,7 +2,8 @@
 
 Hypothesis only chooses *which operations to try and with which arguments*. It
 knows nothing about security: every judgement is made by the Engine/Evaluator,
-and a violation surfaces as an exception that Hypothesis then shrinks.
+and a violation surfaces as an exception that ends the example. Hypothesis' own shrinking is
+disabled; the failing scenario is minimised afterwards by ``analysis.minimizer``.
 """
 
 from __future__ import annotations

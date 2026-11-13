@@ -1,7 +1,8 @@
 """Scenario minimisation by deterministic greedy deletion.
 
-Hypothesis shrinks too, but stateful shrinking is heuristic: removing a step
-shifts later draws, so redundant operations can survive. This pass works on the
+Hypothesis' own shrinking is disabled for exploration because stateful shrinking
+is heuristic: removing a step shifts later draws, so redundant operations can
+survive. This pass works on the
 symbolic scenario directly: delete one operation at a time and keep the deletion
 iff replaying on a fresh target still violates the *same property*.
 """
