@@ -36,8 +36,9 @@ The properties (`properties/checks.py`), in evaluation order:
 - *TI-1 confidentiality*: on every responded actor operation, scan the response body for markers of
   other orgs' documents. Needs no probe.
 - *TI-2 / AZ-1 integrity*: for a write the policy denied, diff a snapshot of the affected org against
-  the model. One implementation, two instances; which one applies is taken from the policy decision,
-  never recomputed.
+  the model. One implementation, two instances; each applies when the policy decision holds a denial
+  for it (an operation can be denied under both) and reports that denial's reason. Both ask for the
+  same snapshot, which is taken once.
 
 The framework owns missing evidence: no response, a 5xx, or a probe that was not taken or cannot be
 parsed is `INCONCLUSIVE`, and a property is never asked to judge without the evidence it required.

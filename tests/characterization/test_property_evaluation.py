@@ -377,22 +377,23 @@ STEP_TABLE = [
         "admin0",
         "org0",
     ),
-    # cross-tenant AND wrong role: attributed to TI-2 only
+    # cross-tenant AND wrong role: denied under both rules since the multi-denial
+    # policy; the integrity check runs once per property but lists the org once
     (
         UpdateDocument(actor="viewer1", doc="doc0", content="x"),
         False,
-        "cross-tenant write",
+        "cross-tenant write; viewer may not update",
         404,
-        ["TI-1", "TI-2"],
+        ["TI-1", "TI-2", "AZ-1"],
         "admin0",
         "org0",
     ),
     (
         DeleteDocument(actor="member1", doc="doc0"),
         False,
-        "cross-tenant delete",
+        "cross-tenant delete; member may not delete",
         404,
-        ["TI-1", "TI-2"],
+        ["TI-1", "TI-2", "AZ-1"],
         "admin0",
         "org0",
     ),
@@ -408,9 +409,9 @@ STEP_TABLE = [
     (
         DeleteDocument(actor="viewer0", doc="doc1"),
         False,
-        "cross-tenant delete",
+        "cross-tenant delete; viewer may not delete",
         404,
-        ["TI-1", "TI-2"],
+        ["TI-1", "TI-2", "AZ-1"],
         "member1",
         "org1",
     ),
@@ -434,18 +435,22 @@ def test_evaluations_and_call_trace_for_each_kind_of_step_on_a_correct_target(
         status,
     )
     # Scope: TI-1 exactly once, first, on every responded actor operation; a
-    # denied write additionally under the id the policy decision assigned.
+    # denied write additionally under every property id the decision denied it
+    # under, each judged on its own denial's reason.
     assert ids(record) == expected_ids
     assert outcomes(record) == [Outcome.PASS] * len(expected_ids)
     assert (record.evaluations[0].summary, record.evaluations[0].evidence) == (TI1_PASS, {})
     if probed_org is not None:
-        integrity = record.evaluations[1]
         # Safe to ask after the fact: a denied operation never changes the model.
-        assert integrity.property_id == decide(rig.engine.state, op).property_id
-        assert integrity.summary == (
-            f"state of {probed_org} unchanged after forbidden operation ({reason})"
-        )
-        assert integrity.evidence == {}
+        decision = decide(rig.engine.state, op)
+        integrity = record.evaluations[1:]
+        assert [e.property_id for e in integrity] == list(decision.property_ids)
+        for e in integrity:
+            own_reason = decision.denial_for(e.property_id).reason
+            assert e.summary == (
+                f"state of {probed_org} unchanged after forbidden operation ({own_reason})"
+            )
+            assert e.evidence == {}
 
     # Call trace: the primary call as the actor, then at most one listing.
     primary = (ACTION[type(op)], rig.token(op.actor))

@@ -69,7 +69,8 @@ SCOPE = [
     (CreateDocument(ref="d", actor="user2", content="x"), ["TI-1", "AZ-1"], "org0"),
     (UpdateDocument(actor="user1", doc="doc0", content="x"), ["TI-1", "TI-2"], "org0"),
     (UpdateDocument(actor="user2", doc="doc0", content="x"), ["TI-1", "AZ-1"], "org0"),
-    (DeleteDocument(actor="user1", doc="doc0"), ["TI-1", "TI-2"], "org0"),
+    # cross-tenant member delete also lacks the admin role: denied under both
+    (DeleteDocument(actor="user1", doc="doc0"), ["TI-1", "TI-2", "AZ-1"], "org0"),
     (DeleteDocument(actor="user2", doc="doc0"), ["TI-1", "AZ-1"], "org0"),
 ]
 
@@ -78,9 +79,8 @@ SCOPE = [
 def test_scope_and_requirements_follow_the_decision(op, applicable, org):
     step = step_for(op)
     assert [p.id for p in CHECKS if p.applies(step)] == applicable
-    # A denied write is claimed by exactly the property the decision names.
-    if org is not None:
-        assert applicable[1] == step.decision.property_id
+    # A denied write is judged by exactly the properties the decision denies it under.
+    assert [i for i in applicable if i != "TI-1"] == ([] if org is None else list(step.decision.property_ids))
     assert TI1.requires(step) == ()
     for prop in (TI2, AZ1):
         if prop.applies(step):
@@ -93,9 +93,10 @@ def test_denied_create_requires_the_actors_org_and_denied_update_the_documents_o
     create = step_for(CreateDocument(ref="d", actor="user1", content="x"), state)
     assert AZ1.applies(create) and AZ1.requires(create) == (OrgSnapshot("org1"),)
     update = step_for(UpdateDocument(actor="user1", doc="doc0", content="x"), state)
-    # Cross-tenant and wrong role: the decision says TI-2, so only TI-2 applies.
-    assert TI2.applies(update) and not AZ1.applies(update)
-    assert TI2.requires(update) == (OrgSnapshot("org0"),)
+    # Cross-tenant and wrong role: denied under both, so both apply, and both ask
+    # for the same snapshot (the framework runs it once).
+    assert TI2.applies(update) and AZ1.applies(update)
+    assert TI2.requires(update) == AZ1.requires(update) == (OrgSnapshot("org0"),)
 
 
 # -- verdicts ---------------------------------------------------------------
@@ -197,7 +198,11 @@ def test_framework_stamps_the_property_id_and_passes_parsed_evidence():
         {"property_id": "TI-2", "outcome": Outcome.VIOLATION, "summary": "bad", "evidence": {"k": 1}}
     ]
     (step, seen_response, evidence) = spy.evaluated[0]
-    assert (step.state, step.actor, step.decision.property_id) == (state, state.user("user1"), "TI-2")
+    assert (step.state, step.actor, step.decision.property_ids) == (
+        state,
+        state.user("user1"),
+        ("TI-2",),
+    )
     assert seen_response is response
     assert evidence == {OrgSnapshot("org0"): UNCHANGED}
 

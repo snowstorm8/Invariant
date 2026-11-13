@@ -165,8 +165,8 @@ class Engine:
                 summary=f"provisioning failed for {op.ref}",
                 evidence={"status": obs.status, "error": obs.error, "body": obs.excerpt()},
             )
-            return self._record(index, op, Decision(True, "provisioning"), obs, [evaluation])
-        return self._record(index, op, Decision(True, "provisioning"), obs, [])
+            return self._record(index, op, Decision.permit("provisioning"), obs, [evaluation])
+        return self._record(index, op, Decision.permit("provisioning"), obs, [])
 
     def _apply_actor_op(self, index: int, op: Operation) -> StepRecord:
         assert not isinstance(op, (CreateOrg, CreateUser))

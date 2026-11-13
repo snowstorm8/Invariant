@@ -94,24 +94,21 @@ class Evaluator:
                 )
             )
         parsed = {request: self._probe_result(probe) for request, probe in probes.items()}
-        requested_evidence = False
+        judged_from_evidence: set[str] = set()
         for prop in self.properties:
             if not prop.applies(step):
                 continue
             requests = prop.requires(step)
-            requested_evidence = requested_evidence or bool(requests)
+            if requests:
+                judged_from_evidence.add(prop.id)
             results.append(self._judge(prop, step, response, requests, parsed))
         # A write the policy denied can only be judged from the state it left
-        # behind. If no property asked for that evidence, the decision names a
-        # property that is not implemented: fail loudly rather than report
-        # nothing about the write.
-        if not step.decision.allowed and isinstance(
-            step.op, (CreateDocument, UpdateDocument, DeleteDocument)
-        ):
-            assert requested_evidence, (
-                f"denied write attributed to {step.decision.property_id!r}, "
-                "which no property evaluates"
-            )
+        # behind. If a denial names a property that did not ask for that
+        # evidence, it is not implemented: fail loudly rather than report
+        # nothing about it.
+        if isinstance(step.op, (CreateDocument, UpdateDocument, DeleteDocument)):
+            unjudged = [i for i in step.decision.property_ids if i not in judged_from_evidence]
+            assert not unjudged, f"denied write attributed to {unjudged}, which no property evaluates"
         return results
 
     def evaluate(self, state: ModelState, step: ExecutedStep) -> list[Evaluation]:

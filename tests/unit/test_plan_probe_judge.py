@@ -19,7 +19,7 @@ from invariant.core.scenario import (
 )
 from invariant.evaluation.evaluator import Evaluator
 from invariant.evaluation.violations import Outcome
-from invariant.properties.authorization import decide
+from invariant.properties.authorization import ROLE_WRITE_PERMISSION, decide
 from invariant.properties.base import OrgSnapshot, SecurityProperty, Step, Verdict
 from invariant.properties.isolation import TENANT_READ_ISOLATION, TENANT_WRITE_ISOLATION
 
@@ -120,7 +120,10 @@ def engine_with(*props, strict=True):
     return engine, adapter
 
 
-DENIED_CREATE = CreateDocument(ref="doc0", actor="viewer0", content="x")  # AZ-1 by policy
+#: Denied under AZ-1 only. The guard in ``Evaluator`` requires every denial of a
+#: write to be judged by a property that took evidence, so the stand-ins that
+#: should judge it are registered under that id.
+DENIED_CREATE = CreateDocument(ref="doc0", actor="viewer0", content="x")
 
 
 def calls_for_last_step(adapter, before):
@@ -129,7 +132,7 @@ def calls_for_last_step(adapter, before):
 
 def test_two_properties_wanting_the_same_snapshot_cost_one_request():
     a = Wants(TENANT_READ_ISOLATION, "org0")
-    b = Wants(TENANT_WRITE_ISOLATION, "org0")
+    b = Wants(ROLE_WRITE_PERMISSION, "org0")
     engine, adapter = engine_with(a, b)
     before = len(adapter.calls)
 
@@ -143,13 +146,13 @@ def test_two_properties_wanting_the_same_snapshot_cost_one_request():
     assert a.seen == b.seen == [{OrgSnapshot("org0"): {}}]
     assert [(e.property_id, e.outcome) for e in record.evaluations] == [
         ("TI-1", Outcome.PASS),
-        ("TI-2", Outcome.PASS),
+        ("AZ-1", Outcome.PASS),
     ]
 
 
 def test_distinct_requests_are_executed_in_plan_order_each_as_a_member_of_its_org():
     a = Wants(TENANT_READ_ISOLATION, "org1")
-    b = Wants(TENANT_WRITE_ISOLATION, "org0", "org1")
+    b = Wants(ROLE_WRITE_PERMISSION, "org0", "org1")
     engine, adapter = engine_with(a, b)
     before = len(adapter.calls)
 
@@ -173,7 +176,7 @@ def test_no_probe_is_executed_when_nothing_in_scope_asks_for_one():
 
 def test_a_request_that_cannot_be_executed_is_inconclusive_for_the_properties_needing_it():
     needs_empty = Wants(TENANT_READ_ISOLATION, "org0", "empty")
-    fine = Wants(TENANT_WRITE_ISOLATION, "org0")
+    fine = Wants(ROLE_WRITE_PERMISSION, "org0")
     engine, adapter = engine_with(needs_empty, fine, strict=False)
     before = len(adapter.calls)
 
@@ -188,7 +191,7 @@ def test_a_request_that_cannot_be_executed_is_inconclusive_for_the_properties_ne
     assert fine.seen == [{OrgSnapshot("org0"): {}}]  # unaffected by the other's gap
     assert [(e.property_id, e.outcome, e.summary) for e in record.evaluations] == [
         ("TI-1", Outcome.INCONCLUSIVE, "no state probe was taken after a forbidden write"),
-        ("TI-2", Outcome.PASS, "saw ['org0']"),
+        ("AZ-1", Outcome.PASS, "saw ['org0']"),
     ]
     assert record.outcome is Outcome.INCONCLUSIVE
 

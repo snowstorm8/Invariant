@@ -51,17 +51,18 @@ class ForeignDataDisclosure(SecurityProperty):
 class ForbiddenWriteIntegrity(SecurityProperty):
     """A write the policy denied must leave the affected organization unchanged.
 
-    Scope comes from the policy decision: the property applies to a denied
-    write exactly when the decision names this property. The expected state is
-    the pre-operation model, which is the right expectation only because the
+    Scope comes from the policy decision: the property applies to a write
+    exactly when the decision holds a denial for this property, and it reports
+    that denial's reason. An operation denied under several properties is
+    judged by each of them, on the same snapshot. The expected state is the
+    pre-operation model, which is the right expectation only because the
     operation was denied.
     """
 
     def applies(self, step: Step) -> bool:
         return (
-            not step.decision.allowed
-            and isinstance(step.op, (CreateDocument, UpdateDocument, DeleteDocument))
-            and step.decision.property_id == self.id
+            isinstance(step.op, (CreateDocument, UpdateDocument, DeleteDocument))
+            and step.decision.denial_for(self.id) is not None
         )
 
     def requires(self, step: Step) -> tuple[ProbeRequest, ...]:
@@ -69,7 +70,9 @@ class ForbiddenWriteIntegrity(SecurityProperty):
 
     def evaluate(self, step: Step, response: Observation, evidence: Evidence) -> Verdict:
         org = self._affected_org(step)
-        reason = step.decision.reason
+        denial = step.decision.denial_for(self.id)
+        assert denial is not None, "evaluate() is only called when applies() is true"
+        reason = denial.reason
         diffs = diff_snapshots(step.state.expected_snapshot(org), evidence[OrgSnapshot(org)])
         if diffs:
             return Verdict(
