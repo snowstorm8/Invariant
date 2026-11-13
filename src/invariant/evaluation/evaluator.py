@@ -17,7 +17,7 @@ INCONCLUSIVE, never PASS.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from invariant.adapters.base import Observation
@@ -41,10 +41,22 @@ class ExecutedStep:
     actor: UserModel
     decision: Decision
     observation: Observation
-    #: Observation of a legitimate listing of ``probe_org``, taken after an
-    #: operation that the policy forbids. None if no probe was taken.
+    #: Single-probe view: the listing of ``probe_org`` taken for this step, or
+    #: None. Kept for callers that predate ``probes`` and for the legacy
+    #: reference implementation; both views are kept consistent below.
     probe: Observation | None = None
     probe_org: str | None = None
+    #: Every probe taken for this step, keyed by the request it answers. A
+    #: request that could not be executed at all is simply absent.
+    probes: Mapping[ProbeRequest, Observation] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.probes:
+            if self.probe is not None and self.probe_org is not None:
+                self.probes = {OrgSnapshot(self.probe_org): self.probe}
+        elif self.probe is None and self.probe_org is None:
+            request, self.probe = next(iter(self.probes.items()))
+            self.probe_org = request.org
 
 
 @dataclass(frozen=True)
@@ -61,36 +73,49 @@ class Evaluator:
     #: Properties judged on every actor step, in evaluation order.
     properties: Sequence[SecurityProperty] = CHECKS
 
-    def evaluate(self, state: ModelState, step: ExecutedStep) -> list[Evaluation]:
-        """Judge one executed step against every property in scope.
+    def plan(self, step: Step) -> list[ProbeRequest]:
+        """The probes needed to judge ``step``: what every property in scope
+        requires, in evaluation order, each request once.
 
-        The framework owns EXEC, evidence validation, property id attribution
-        and ordering; each property only supplies its scope, its evidence
-        requirements and a verdict. No I/O happens here: the probe the engine
-        already took is adapted into the evidence the properties asked for.
+        Pure, and independent of the target's response, so the calls a scenario
+        makes are a function of the scenario and the model alone.
         """
-        obs = step.observation
-        if not obs.responded:
-            return [self._inconclusive(EXECUTION.id, f"no response: {obs.error}")]
+        requests: dict[ProbeRequest, None] = {}
+        for prop in self.properties:
+            if prop.applies(step):
+                requests.update(dict.fromkeys(prop.requires(step)))
+        return list(requests)
+
+    def judge(
+        self, step: Step, response: Observation, probes: Mapping[ProbeRequest, Observation]
+    ) -> list[Evaluation]:
+        """Judge one step against every property in scope.
+
+        ``probes`` holds the raw observation for each planned request that was
+        executed. The framework owns EXEC, evidence validation, property id
+        attribution and ordering; each property only supplies its scope, its
+        evidence requirements and a verdict. No I/O happens here.
+        """
+        if not response.responded:
+            return [self._inconclusive(EXECUTION.id, f"no response: {response.error}")]
 
         results: list[Evaluation] = []
-        if obs.status is not None and obs.status >= 500:
+        if response.status is not None and response.status >= 500:
             results.append(
                 self._inconclusive(
                     EXECUTION.id,
-                    f"server error {obs.status}; outcome of the operation is unknown",
-                    {"body": obs.excerpt()},
+                    f"server error {response.status}; outcome of the operation is unknown",
+                    {"body": response.excerpt()},
                 )
             )
-        planned = Step(step.op, step.actor, step.decision, state)
-        probes = self._probe_results(step)
+        parsed = {request: self._probe_result(probe) for request, probe in probes.items()}
         requested_evidence = False
         for prop in self.properties:
-            if not prop.applies(planned):
+            if not prop.applies(step):
                 continue
-            requests = prop.requires(planned)
+            requests = prop.requires(step)
             requested_evidence = requested_evidence or bool(requests)
-            results.append(self._judge(prop, planned, obs, requests, probes))
+            results.append(self._judge(prop, step, response, requests, parsed))
         # A write the policy denied can only be judged from the state it left
         # behind. If no property asked for that evidence, the decision names a
         # property that is not implemented: fail loudly rather than report
@@ -104,17 +129,15 @@ class Evaluator:
             )
         return results
 
+    def evaluate(self, state: ModelState, step: ExecutedStep) -> list[Evaluation]:
+        """Judge an executed step: ``judge`` on the probes it carries."""
+        planned = Step(step.op, step.actor, step.decision, state)
+        return self.judge(planned, step.observation, step.probes)
+
     @staticmethod
-    def _probe_results(step: ExecutedStep) -> dict[ProbeRequest, ProbeResult]:
-        """The probe the engine took, keyed by the request it answers."""
-        if step.probe is None or step.probe_org is None:
-            return {}
-        snapshot = parse_snapshot(step.probe)
-        return {
-            OrgSnapshot(step.probe_org): (
-                ProbeFailure(step.probe) if snapshot is None else snapshot
-            )
-        }
+    def _probe_result(probe: Observation) -> ProbeResult:
+        snapshot = parse_snapshot(probe)
+        return ProbeFailure(probe) if snapshot is None else snapshot
 
     def _judge(
         self,
