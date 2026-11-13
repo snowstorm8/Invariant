@@ -69,6 +69,10 @@ class InconclusiveError(RunFailure):
     """The run could not be judged; this is never treated as a pass."""
 
 
+class EngineInvalidatedError(RuntimeError):
+    """The engine's reference model is untrustworthy; call ``reset()`` first."""
+
+
 class Engine:
     def __init__(
         self,
@@ -84,18 +88,20 @@ class Engine:
         self.state = ModelState()
         self.history: list[StepRecord] = []
         self._ref_counts: dict[str, int] = {}
-        #: Set when a transition could not be verified: the run must stop even
-        #: if non-strict, because the model can no longer be trusted.
-        self._halt = False
+        #: Why the run became invalid (an authorised write could not be verified).
+        #: Terminal: only a successful ``reset()`` clears it, because the model
+        #: can no longer be trusted and must not be built upon.
+        self._invalid: str | None = None
 
     # -- lifecycle ----------------------------------------------------------
 
     def reset(self) -> None:
         """Reset the target (verified by the adapter) and forget all model state."""
-        self.adapter.reset()
+        self.adapter.reset()  # if this raises, the engine stays invalid
         self.state = ModelState()
         self.history = []
         self._ref_counts = {}
+        self._invalid = None
 
     def close(self) -> None:
         self.adapter.close()
@@ -112,8 +118,11 @@ class Engine:
     # -- execution ----------------------------------------------------------
 
     def apply(self, op: Operation) -> StepRecord:
+        if self._invalid is not None:
+            raise EngineInvalidatedError(
+                f"engine is invalid ({self._invalid}); reset() before applying more operations"
+            )
         index = len(self.history)
-        self._halt = False
         if isinstance(op, (CreateOrg, CreateUser)):
             record = self._apply_setup(index, op)
         else:
@@ -185,7 +194,9 @@ class Engine:
             if unverified is not None:
                 evaluations.append(unverified)
             if unverified is not None or not obs.responded or (obs.status or 0) >= 500:
-                self._halt = True
+                self._invalid = (
+                    unverified.summary if unverified is not None else "uncertain write outcome"
+                )
         return self._record(index, op, decision, obs, evaluations)
 
     @staticmethod
@@ -337,7 +348,7 @@ class Engine:
         inconclusive = [e for e in record.evaluations if e.outcome is Outcome.INCONCLUSIVE]
         if inconclusive:
             is_setup = isinstance(record.operation, (CreateOrg, CreateUser))
-            if self.strict or is_setup or self._halt:
+            if self.strict or is_setup or self._invalid is not None:
                 first = inconclusive[0]
                 raise InconclusiveError(
                     f"inconclusive at step {record.index}: {first.summary}",

@@ -1,9 +1,10 @@
 import pytest
 from support import ScriptedAdapter, obs
 
-from invariant.adapters.base import Action, Call, Observation
+from invariant.adapters.base import Action, AdapterError, Call, Observation
 from invariant.core.engine import (
     Engine,
+    EngineInvalidatedError,
     InconclusiveError,
     PropertyViolationError,
 )
@@ -292,14 +293,17 @@ BAD_PROBES = [
 
 
 @pytest.mark.parametrize("probe", BAD_PROBES)
-def test_unavailable_or_malformed_probe_blocks_authorised_commit(seeded, world, probe):
-    world.overrides[Action.LIST_DOCUMENTS] = probe
-    for op in (
+@pytest.mark.parametrize(
+    "op",
+    [
         UpdateDocument(actor="user0", doc="doc0", content="new"),
         DeleteDocument(actor="user0", doc="doc0"),
-    ):
-        err = assert_inconclusive_and_model_untouched(seeded, op, model_view(seeded))
-        assert "probe unusable" in err.record.evaluations[-1].summary
+    ],
+)
+def test_unavailable_or_malformed_probe_blocks_authorised_commit(seeded, world, probe, op):
+    world.overrides[Action.LIST_DOCUMENTS] = probe
+    err = assert_inconclusive_and_model_untouched(seeded, op, model_view(seeded))
+    assert "probe unusable" in err.record.evaluations[-1].summary
 
 
 @pytest.mark.parametrize("probe", BAD_PROBES)
@@ -384,3 +388,103 @@ def test_transport_error_is_inconclusive(engine, world):
     world.overrides[Action.LIST_DOCUMENTS] = obs(None, "", error="ConnectError")
     with pytest.raises(InconclusiveError):
         engine.apply(ListDocuments(actor="user0"))
+
+
+# -- an unverified transition is terminal until a successful reset ------------
+
+
+def invalidate(engine, world):
+    """Make an authorised write unverifiable and swallow the resulting error."""
+    world.skip_persist.add(Action.UPDATE_DOCUMENT)
+    with pytest.raises(InconclusiveError):
+        engine.apply(UpdateDocument(actor="user0", doc="doc0", content="new"))
+    world.skip_persist.clear()
+
+
+def test_apply_after_unverified_write_is_rejected_before_any_adapter_call(seeded, world):
+    invalidate(seeded, world)
+    calls, history, model = len(seeded.adapter.calls), list(seeded.history), model_view(seeded)
+    users = dict(seeded.state.users)
+    for op in (
+        ListDocuments(actor="user0"),  # harmless read
+        UpdateDocument(actor="user0", doc="doc0", content="again"),
+        CreateOrg(ref="org9", name="x"),  # setup ops too
+    ):
+        with pytest.raises(EngineInvalidatedError, match="reset"):
+            seeded.apply(op)
+    assert len(seeded.adapter.calls) == calls
+    assert seeded.history == history and model_view(seeded) == model
+    assert seeded.state.users == users and "org9" not in seeded.state.orgs
+
+
+@pytest.mark.parametrize("strict", [True, False])
+def test_every_unverified_cause_invalidates(seeded, world, strict):
+    seeded.strict = strict
+    world.overrides[Action.LIST_DOCUMENTS] = obs(200, "not json")  # unusable probe
+    with pytest.raises(InconclusiveError):
+        seeded.apply(UpdateDocument(actor="user0", doc="doc0", content="n"))
+    with pytest.raises(EngineInvalidatedError):
+        seeded.apply(ListDocuments(actor="user0"))
+
+
+def test_missing_create_id_and_server_error_also_invalidate(engine, world):
+    world.overrides[Action.CREATE_DOCUMENT] = obs(201, {"ok": True})
+    with pytest.raises(InconclusiveError):
+        engine.apply(CreateDocument(ref="doc0", actor="user0", content="c"))
+    with pytest.raises(EngineInvalidatedError):
+        engine.apply(ListDocuments(actor="user0"))
+
+    engine.reset()
+    world.overrides.clear()
+    engine.apply(CreateOrg(ref="org0", name="a"))
+    engine.apply(CreateUser(ref="user0", org="org0", role=Role.ADMIN))
+    world.overrides[Action.CREATE_DOCUMENT] = obs(500, "boom")
+    engine.strict = False
+    with pytest.raises(InconclusiveError):
+        engine.apply(CreateDocument(ref="doc0", actor="user0", content="c"))
+    with pytest.raises(EngineInvalidatedError):
+        engine.apply(ListDocuments(actor="user0"))
+
+
+def test_successful_reset_restores_normal_operation(seeded, world):
+    invalidate(seeded, world)
+    seeded.reset()
+    assert not seeded.history and not seeded.state.docs
+    seeded.apply(CreateOrg(ref="org0", name="a"))
+    seeded.apply(CreateUser(ref="user0", org="org0", role=Role.ADMIN))
+    rec = seeded.apply(CreateDocument(ref="doc0", actor="user0", content="c"))
+    assert rec.outcome is Outcome.PASS and "doc0" in seeded.state.docs
+
+
+def test_failed_reset_does_not_clear_the_terminal_state(seeded, world):
+    invalidate(seeded, world)
+    adapter = seeded.adapter
+
+    def failing_reset():
+        raise AdapterError("cannot reset")
+
+    adapter.reset = failing_reset
+    calls, history = len(adapter.calls), list(seeded.history)
+    with pytest.raises(AdapterError):
+        seeded.reset()
+    with pytest.raises(EngineInvalidatedError):
+        seeded.apply(ListDocuments(actor="user0"))
+    assert len(adapter.calls) == calls and seeded.history == history  # nothing was cleared
+    del adapter.reset  # target recovers; a later successful reset works
+    seeded.reset()
+    seeded.apply(CreateOrg(ref="org0", name="a"))
+
+
+def test_ordinary_violation_does_not_invalidate_the_engine(seeded, world):
+    world.apply_on_deny = True
+    with pytest.raises(PropertyViolationError):
+        seeded.apply(UpdateDocument(actor="user1", doc="doc0", content="evil"))
+    world.apply_on_deny = False
+    seeded.apply(ListDocuments(actor="user0"))  # still usable, as before
+
+
+def test_unrelated_inconclusive_observation_does_not_invalidate(seeded, world):
+    seeded.strict = False
+    world.overrides[Action.READ_DOCUMENT] = obs(500, "boom")
+    assert seeded.apply(ReadDocument(actor="user0", doc="doc0")).outcome is Outcome.INCONCLUSIVE
+    seeded.apply(ListDocuments(actor="user0"))  # non-strict continues, as before
