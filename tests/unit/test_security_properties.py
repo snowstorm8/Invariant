@@ -178,12 +178,13 @@ class Spy(SecurityProperty):
 
 
 def evaluate_with(spy, response, probe, probe_org="org0"):
+    probes = {} if probe is None else {OrgSnapshot(probe_org): probe}
     class Framework(Evaluator):
         properties = (spy,)
 
     state = make_state()
     op = UpdateDocument(actor="user1", doc="doc0", content="x")
-    step = ExecutedStep(op, state.user("user1"), decide(state, op), response, probe, probe_org)
+    step = ExecutedStep(op, state.user("user1"), decide(state, op), response, probes)
     return state, Framework().evaluate(state, step)
 
 
@@ -204,8 +205,9 @@ def test_framework_stamps_the_property_id_and_passes_parsed_evidence():
 @pytest.mark.parametrize(
     ("probe", "probe_org", "summary", "evidence"),
     [
-        (None, None, "no state probe was taken after a forbidden write", {}),
-        (obs(200, []), None, "no state probe was taken after a forbidden write", {}),
+        (None, "org0", "no state probe was taken after a forbidden write", {}),
+        # A usable probe of some other org does not answer the request.
+        (obs(200, []), "org1", "no state probe was taken after a forbidden write", {}),
         (
             obs(200, "not json"),
             "org0",

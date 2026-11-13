@@ -10,8 +10,9 @@ Property-based testing of security invariants (authorization / tenant isolation)
 - `./scripts/demo.sh` — end-to-end demo against the local vulnerable app
 
 ## Rules
-- Hypothesis chooses operations only. Security verdicts come from `evaluation/` and must be
-  deterministic. No LLM in the evaluation path.
+- Hypothesis chooses operations only. Security verdicts come from `SecurityProperty.evaluate`
+  (`properties/checks.py`), run by `evaluation/`, and must be deterministic and pure: properties do
+  no I/O and declare the probes they need via `requires`. No LLM in the evaluation path.
 - Never decide a verdict from an HTTP status alone. Missing observations, 5xx and transport
   errors are `INCONCLUSIVE`, never `PASS`.
 - Scenarios use symbolic refs (`org0`, `user1`, `doc2`), never app IDs or tokens, so they replay.

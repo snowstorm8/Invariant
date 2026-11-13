@@ -1,17 +1,16 @@
 """Deterministic evaluation of security properties.
 
 Verdicts come from structured observations compared against the expected-state
-model, not from HTTP status codes:
+model, not from HTTP status codes. How each property is judged lives in
+``invariant.properties.checks``; this module is the framework around them:
 
-* Confidentiality (TI-1): every response body is scanned for the unique marker
-  of documents owned by *other* organizations. A 404 whose body leaks a marker
-  is a violation; a 200 that contains none is not.
-* Integrity (TI-2, AZ-1): after an operation the policy forbids, the evaluator
-  inspects a *state probe* (a legitimate listing of the affected org) and
-  compares it with the model. A 403 that still changed state is a violation.
+* ``plan``: which probes the properties in scope need for a step.
+* ``judge``: run each property in scope on the response and its evidence, and
+  stamp its id on the result.
 
-Anything that prevents a judgement (no response, 5xx, unusable probe) is
-INCONCLUSIVE, never PASS.
+The framework, not the properties, decides what missing evidence means.
+Anything that prevents a judgement (no response, 5xx, a probe that was not
+taken or cannot be parsed) is INCONCLUSIVE, never PASS.
 """
 
 from __future__ import annotations
@@ -24,10 +23,9 @@ from invariant.adapters.base import Observation
 from invariant.core.scenario import CreateDocument, DeleteDocument, Operation, UpdateDocument
 from invariant.core.state import ModelState, UserModel
 from invariant.properties.authorization import Decision
-from invariant.properties.base import OrgSnapshot, ProbeRequest, SecurityProperty, Step
+from invariant.properties.base import ProbeRequest, SecurityProperty, Step
 from invariant.properties.checks import CHECKS
-from invariant.properties.isolation import TENANT_READ_ISOLATION
-from invariant.properties.registry import EXECUTION, PROPERTIES
+from invariant.properties.registry import EXECUTION
 
 from .snapshots import Snapshot, diff_snapshots, parse_snapshot
 from .violations import Evaluation, Outcome
@@ -41,22 +39,9 @@ class ExecutedStep:
     actor: UserModel
     decision: Decision
     observation: Observation
-    #: Single-probe view: the listing of ``probe_org`` taken for this step, or
-    #: None. Kept for callers that predate ``probes`` and for the legacy
-    #: reference implementation; both views are kept consistent below.
-    probe: Observation | None = None
-    probe_org: str | None = None
     #: Every probe taken for this step, keyed by the request it answers. A
     #: request that could not be executed at all is simply absent.
     probes: Mapping[ProbeRequest, Observation] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if not self.probes:
-            if self.probe is not None and self.probe_org is not None:
-                self.probes = {OrgSnapshot(self.probe_org): self.probe}
-        elif self.probe is None and self.probe_org is None:
-            request, self.probe = next(iter(self.probes.items()))
-            self.probe_org = request.org
 
 
 @dataclass(frozen=True)
@@ -170,96 +155,6 @@ class Evaluator:
             outcome=verdict.outcome,
             summary=verdict.summary,
             evidence=verdict.evidence,
-        )
-
-    # -- legacy reference ---------------------------------------------------
-    # The implementation before properties were extracted. Kept only so the
-    # differential tests can compare against it; nothing in src/ calls it.
-
-    def _legacy_evaluate(self, state: ModelState, step: ExecutedStep) -> list[Evaluation]:
-        obs = step.observation
-        if not obs.responded:
-            return [self._inconclusive(EXECUTION.id, f"no response: {obs.error}")]
-
-        results: list[Evaluation] = []
-        if obs.status is not None and obs.status >= 500:
-            results.append(
-                self._inconclusive(
-                    EXECUTION.id,
-                    f"server error {obs.status}; outcome of the operation is unknown",
-                    {"body": obs.excerpt()},
-                )
-            )
-        results.append(self._legacy_confidentiality(state, step))
-        if not step.decision.allowed and isinstance(
-            step.op, (CreateDocument, UpdateDocument, DeleteDocument)
-        ):
-            results.append(self._legacy_integrity(state, step))
-        return results
-
-
-    def _legacy_confidentiality(self, state: ModelState, step: ExecutedStep) -> Evaluation:
-        obs = step.observation
-        leaked = [
-            {"doc": d.ref, "owner_org": d.org, "marker": d.marker}
-            for d in state.foreign_docs(step.actor.org)
-            if d.marker in obs.body
-        ]
-        if leaked:
-            return Evaluation(
-                property_id=TENANT_READ_ISOLATION.id,
-                outcome=Outcome.VIOLATION,
-                summary=(
-                    f"{step.actor.ref} ({step.actor.org}) received data of "
-                    + ", ".join(f"{x['doc']} (owned by {x['owner_org']})" for x in leaked)
-                ),
-                evidence={
-                    "leaked": leaked,
-                    "status": obs.status,
-                    "response_excerpt": obs.excerpt(),
-                },
-            )
-        return Evaluation(
-            property_id=TENANT_READ_ISOLATION.id,
-            outcome=Outcome.PASS,
-            summary="no data of other organizations observed in the response",
-        )
-
-
-    def _legacy_integrity(self, state: ModelState, step: ExecutedStep) -> Evaluation:
-        prop_id = step.decision.property_id
-        assert prop_id is not None and prop_id in PROPERTIES
-        probe, org = step.probe, step.probe_org
-        if probe is None or org is None:
-            return self._inconclusive(prop_id, "no state probe was taken after a forbidden write")
-        observed = parse_snapshot(probe)
-        if observed is None:
-            return self._inconclusive(
-                prop_id,
-                "state probe unusable",
-                {"status": probe.status, "error": probe.error, "body": probe.excerpt()},
-            )
-        expected = state.expected_snapshot(org)
-        diffs = diff_snapshots(expected, observed)
-        if diffs:
-            return Evaluation(
-                property_id=prop_id,
-                outcome=Outcome.VIOLATION,
-                summary=(
-                    f"forbidden operation ({step.decision.reason}) changed application state "
-                    f"of {org}: " + "; ".join(diffs)
-                ),
-                evidence={
-                    "reason": step.decision.reason,
-                    "differences": diffs,
-                    "response_status": step.observation.status,
-                    "response_excerpt": step.observation.excerpt(),
-                },
-            )
-        return Evaluation(
-            property_id=prop_id,
-            outcome=Outcome.PASS,
-            summary=f"state of {org} unchanged after forbidden operation ({step.decision.reason})",
         )
 
     def snapshot_diff(self, probe: Observation, expected: Snapshot) -> list[str] | None:

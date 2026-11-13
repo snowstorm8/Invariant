@@ -40,9 +40,9 @@ Reproduced by deterministic replay on a fresh target: yes
 | Layer | Responsibility |
 |---|---|
 | `exploration/` | Hypothesis `RuleBasedStateMachine` picks operations and arguments. Knows nothing about security. |
-| `core/engine.py` | Executes one operation via the adapter, keeps the expected-state model, calls the evaluator. |
-| `properties/` | Property statements (TI-1, TI-2, AZ-1) and the reference authorization policy. |
-| `evaluation/` | Deterministic verdicts: `PASS` / `VIOLATION` / `INCONCLUSIVE`. No LLM, no status-code trust. |
+| `core/engine.py` | Executes one operation via the adapter, takes the probes the evaluator plans, keeps the expected-state model. |
+| `properties/` | Property statements (TI-1, TI-2, AZ-1), the reference authorization policy, and how each property is judged (`SecurityProperty`). |
+| `evaluation/` | Framework around the properties: plans probes, runs each property in scope, owns `INCONCLUSIVE`. Deterministic; no LLM, no status-code trust. |
 | `adapters/` | `reset()` / `execute()` / `close()` contract; `HttpAdapter` for REST targets. |
 | `analysis/` | Replay of a symbolic scenario and 1-minimal reduction. |
 | `reporting/` | Structured JSON report and text rendering. |

@@ -45,6 +45,7 @@ from invariant.core.scenario import (
 from invariant.evaluation.evaluator import Evaluator, ExecutedStep
 from invariant.evaluation.violations import Outcome
 from invariant.properties.authorization import decide
+from invariant.properties.base import OrgSnapshot
 from invariant.reporting.reporter import build_report
 
 PINNED = Path(__file__).parent.parent / "regression" / "scenarios" / "stale_cache_read.json"
@@ -455,8 +456,7 @@ def test_evaluations_and_call_trace_for_each_kind_of_step_on_a_correct_target(
 
     # The evaluator saw the same probe decision the trace shows.
     step = rig.evaluator.steps[-1]
-    assert step.probe_org == probed_org
-    assert (step.probe is not None) == (probed_org is not None)
+    assert list(step.probes) == ([] if probed_org is None else [OrgSnapshot(probed_org)])
 
 
 ACTION = {
@@ -511,7 +511,8 @@ def test_denied_write_still_probes_when_the_primary_call_got_no_response(lenient
         (Action.LIST_DOCUMENTS, lenient.token("admin0")),
     ]
     step = lenient.evaluator.steps[-1]
-    assert step.probe is not None and step.probe.status == 200 and step.probe_org == "org0"
+    assert list(step.probes) == [OrgSnapshot("org0")]
+    assert step.probes[OrgSnapshot("org0")].status == 200
 
     # Only EXEC is reported: no TI-1 and no TI-2 evaluation at all.
     assert failure is None

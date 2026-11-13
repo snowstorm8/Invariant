@@ -17,7 +17,7 @@ from invariant.core.scenario import (
     Role,
     UpdateDocument,
 )
-from invariant.evaluation.evaluator import Evaluator, ExecutedStep
+from invariant.evaluation.evaluator import Evaluator
 from invariant.evaluation.violations import Outcome
 from invariant.properties.authorization import decide
 from invariant.properties.base import OrgSnapshot, SecurityProperty, Step, Verdict
@@ -91,27 +91,6 @@ def test_plan_is_ordered_by_property_then_request_and_each_request_appears_once(
 def test_plan_does_not_depend_on_the_response():
     # plan() is not even given one: its signature is the guarantee.
     assert list(inspect.signature(Evaluator.plan).parameters) == ["self", "step"]
-
-
-# -- ExecutedStep keeps both views of its probes consistent ------------------
-
-
-def test_executed_step_single_probe_and_mapping_views_agree():
-    state = make_state()
-    op = UpdateDocument(actor="user1", doc="doc0", content="x")
-    common = (op, state.user("user1"), decide(state, op), obs(403))
-    listing = obs(200, [])
-
-    old_style = ExecutedStep(*common, listing, "org0")
-    assert old_style.probes == {OrgSnapshot("org0"): listing}
-
-    new_style = ExecutedStep(*common, probes={OrgSnapshot("org0"): listing})
-    assert (new_style.probe, new_style.probe_org) == (listing, "org0")
-
-    none = ExecutedStep(*common)
-    assert (none.probe, none.probe_org, none.probes) == (None, None, {})
-    # A probe without its org answers no request.
-    assert ExecutedStep(*common, listing).probes == {}
 
 
 # -- Engine: executes exactly the planned probes -----------------------------
@@ -250,5 +229,5 @@ def test_engine_hands_the_evaluator_the_probes_it_took():
 
     denied, listed = seen
     assert list(denied.probes) == [OrgSnapshot("org0")]
-    assert denied.probes[OrgSnapshot("org0")] is denied.probe and denied.probe_org == "org0"
-    assert (listed.probes, listed.probe, listed.probe_org) == ({}, None, None)
+    assert denied.probes[OrgSnapshot("org0")].status == 200
+    assert listed.probes == {}
