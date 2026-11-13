@@ -132,6 +132,16 @@ class Evaluator:
             summary=f"state of {org} unchanged after forbidden operation ({step.decision.reason})",
         )
 
+    def snapshot_diff(
+        self, probe: Observation, expected: dict[str, tuple[str, int]]
+    ) -> list[str] | None:
+        """Differences between a listing observation and ``expected``.
+
+        None means the probe is unusable (no response, non-200, malformed).
+        """
+        observed = self._parse_snapshot(probe)
+        return None if observed is None else self._diff(expected, observed)
+
     @staticmethod
     def _parse_snapshot(probe: Observation) -> dict[str, tuple[str, int]] | None:
         if probe.status != 200:

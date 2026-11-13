@@ -1,8 +1,12 @@
 import pytest
 from support import ScriptedAdapter, obs
 
-from invariant.adapters.base import Action, Call
-from invariant.core.engine import Engine, InconclusiveError, PropertyViolationError
+from invariant.adapters.base import Action, Call, Observation
+from invariant.core.engine import (
+    Engine,
+    InconclusiveError,
+    PropertyViolationError,
+)
 from invariant.core.scenario import (
     CreateDocument,
     CreateOrg,
@@ -16,29 +20,77 @@ from invariant.core.scenario import (
 from invariant.core.state import UnknownRefError
 from invariant.evaluation.violations import Outcome
 
+WRITERS = {"admin", "member"}
+
 
 class World:
-    """A tiny scriptable target: hands out ids, serves canned document responses."""
+    """A small, correct multi-tenant document service with switchable faults.
+
+    * ``skip_persist``: these actions answer success but change nothing.
+    * ``apply_on_deny``: forbidden writes answer 403 yet still modify state.
+    * ``overrides``: canned observation per action (checked first).
+    * ``mangle``: function applied to stored content on create/update.
+    """
 
     def __init__(self):
         self.n = 0
-        self.overrides: dict[Action, object] = {}
+        self.orgs: set[str] = set()
+        self.users: dict[str, tuple[str, str]] = {}  # token -> (org, role)
+        self.docs: dict[str, dict] = {}
+        self.skip_persist: set[Action] = set()
+        self.apply_on_deny = False
+        self.overrides: dict[Action, Observation] = {}
+        self.mangle = lambda c: c
 
-    def __call__(self, call: Call):
+    def _id(self, prefix):
+        self.n += 1
+        return f"{prefix}{self.n}"
+
+    def __call__(self, call: Call) -> Observation:
         if call.action in self.overrides:
             return self.overrides[call.action]
-        self.n += 1
-        match call.action:
-            case Action.CREATE_ORG:
-                return obs(201, {"id": f"o{self.n}"})
-            case Action.CREATE_USER:
-                return obs(201, {"id": f"u{self.n}", "token": f"t{self.n}"})
-            case Action.CREATE_DOCUMENT:
-                return obs(201, {"id": f"d{self.n}"})
-            case Action.LIST_DOCUMENTS:
-                return obs(200, [])
-            case _:
-                return obs(404, {"detail": "not found"})
+        a = call.action
+        if a is Action.CREATE_ORG:
+            org = self._id("o")
+            self.orgs.add(org)
+            return obs(201, {"id": org})
+        if a is Action.CREATE_USER:
+            uid, token = self._id("u"), self._id("t")
+            self.users[token] = (call.org_id, call.data["role"])
+            return obs(201, {"id": uid, "token": token})
+        org, role = self.users[call.credential]
+        if a is Action.LIST_DOCUMENTS:
+            return obs(200, [self._view(d) for d in self.docs.values() if d["org"] == org])
+        if a is Action.CREATE_DOCUMENT:
+            if role not in WRITERS:
+                return obs(403, {"detail": "role"})
+            doc_id = self._id("d")
+            doc = {"id": doc_id, "org": org, "content": self.mangle(call.data["content"]), "version": 1}
+            if a not in self.skip_persist:
+                self.docs[doc_id] = doc
+            return obs(201, self._view(doc))
+        doc = self.docs.get(call.resource_id)
+        if doc is None:
+            return obs(404, {"detail": "not found"})
+        if a is Action.READ_DOCUMENT:
+            return obs(200, self._view(doc)) if doc["org"] == org else obs(404)
+        allowed = doc["org"] == org and (role in WRITERS if a is Action.UPDATE_DOCUMENT else role == "admin")
+        if not allowed and not self.apply_on_deny:
+            return obs(403 if doc["org"] == org else 404, {"detail": "denied"})
+        if a is Action.UPDATE_DOCUMENT:
+            if a not in self.skip_persist:
+                doc["content"] = self.mangle(call.data["content"])
+                doc["version"] += 1
+            return obs(200 if allowed else 403, self._view(doc))
+        if a is Action.DELETE_DOCUMENT:
+            if a not in self.skip_persist:
+                del self.docs[call.resource_id]
+            return obs(200 if allowed else 403, {"id": call.resource_id, "deleted": True})
+        raise AssertionError(a)
+
+    @staticmethod
+    def _view(d):
+        return {"id": d["id"], "org_id": d["org"], "content": d["content"], "version": d["version"]}
 
 
 @pytest.fixture
@@ -58,113 +110,47 @@ def engine(world):
     return e
 
 
-def test_reset_resets_adapter_and_forgets_model(engine):
+@pytest.fixture
+def seeded(engine):
     engine.apply(CreateDocument(ref="doc0", actor="user0", content="c"))
-    assert engine.state.docs and engine.history
-    engine.reset()
-    assert engine.adapter.resets == 2
-    assert not engine.state.docs and not engine.state.users and not engine.history
-    assert engine.new_ref("doc") == "doc0"
+    return engine
+
+
+def assert_inconclusive_and_model_untouched(engine, op, before):
+    """Stops INCONCLUSIVE (never a violation) and leaves the model as it was."""
+    with pytest.raises(InconclusiveError) as exc:
+        engine.apply(op)
+    assert not isinstance(exc.value, PropertyViolationError)
+    assert exc.value.record.outcome is Outcome.INCONCLUSIVE
+    assert exc.value.record.evaluations[-1].property_id == "EXEC"
+    assert {r: (d.content, d.version, d.deleted) for r, d in engine.state.docs.items()} == before
+    return exc.value
+
+
+def model_view(engine):
+    return {r: (d.content, d.version, d.deleted) for r, d in engine.state.docs.items()}
+
+
+# -- lifecycle / plumbing -------------------------------------------------
+
+
+def test_reset_resets_adapter_and_forgets_model(seeded):
+    assert seeded.state.docs and seeded.history
+    seeded.reset()
+    assert seeded.adapter.resets == 2
+    assert not seeded.state.docs and not seeded.state.users and not seeded.history
+    assert seeded.new_ref("doc") == "doc0"
 
 
 def test_new_ref_is_per_prefix_and_sequential(engine):
     assert [engine.new_ref("x"), engine.new_ref("x"), engine.new_ref("y")] == ["x0", "x1", "y0"]
 
 
-def test_calls_use_real_credentials_and_ids_not_symbolic_refs(engine):
-    engine.apply(CreateDocument(ref="doc0", actor="user0", content="c"))
-    call = engine.adapter.calls[-1]
-    assert call.credential == engine.state.user("user0").token != "user0"
-    engine.apply(ReadDocument(actor="user0", doc="doc0"))
-    assert engine.adapter.calls[-1].resource_id == engine.state.doc("doc0").external_id
-
-
-def test_authorised_create_is_mirrored_with_unique_marker(engine):
-    engine.apply(CreateDocument(ref="doc0", actor="user0", content="same"))
-    engine.apply(CreateDocument(ref="doc1", actor="user0", content="same"))
-    d0, d1 = engine.state.doc("doc0"), engine.state.doc("doc1")
-    assert d0.org == "org0" and d0.version == 1
-    assert d0.marker != d1.marker and d0.content.endswith(d0.marker)
-
-
-def test_failed_authorised_create_leaves_model_unchanged(engine, world):
-    world.overrides[Action.CREATE_DOCUMENT] = obs(400, {"detail": "bad"})
-    rec = engine.apply(CreateDocument(ref="doc0", actor="user0", content="c"))
-    assert "doc0" not in engine.state.docs and rec.outcome is Outcome.PASS
-
-
-def test_authorised_update_and_delete_update_model(engine, world):
-    engine.apply(CreateDocument(ref="doc0", actor="user0", content="c"))
-    world.overrides[Action.UPDATE_DOCUMENT] = obs(200, {"ok": 1})
-    engine.apply(UpdateDocument(actor="user0", doc="doc0", content="new"))
-    doc = engine.state.doc("doc0")
-    assert doc.version == 2 and doc.content.startswith("new ")
-    world.overrides[Action.DELETE_DOCUMENT] = obs(200, {"deleted": True})
-    engine.apply(DeleteDocument(actor="user0", doc="doc0"))
-    assert doc.deleted
-
-
-def test_update_rejected_by_target_does_not_change_model(engine):
-    engine.apply(CreateDocument(ref="doc0", actor="user0", content="c"))
-    before = engine.state.doc("doc0").content
-    engine.apply(UpdateDocument(actor="user0", doc="doc0", content="new"))  # default 404
-    assert engine.state.doc("doc0").content == before
-
-
-def test_forbidden_write_triggers_probe_as_member_of_affected_org(engine, world):
-    engine.apply(CreateDocument(ref="doc0", actor="user0", content="c"))
-    ext = engine.state.doc("doc0").external_id
-    marker_content = engine.state.doc("doc0").content
-    world.overrides[Action.LIST_DOCUMENTS] = obs(
-        200, [{"id": ext, "content": marker_content, "version": 1}]
-    )
-    rec = engine.apply(UpdateDocument(actor="user1", doc="doc0", content="evil"))
-    probe_call = engine.adapter.calls[-1]
-    assert probe_call.action is Action.LIST_DOCUMENTS
-    assert probe_call.credential == engine.state.user("user0").token  # org0 member, not attacker
-    assert not rec.allowed_by_policy and rec.outcome is Outcome.PASS
-    assert engine.state.doc("doc0").version == 1
-
-
-def test_forbidden_write_that_changed_state_raises_violation_with_evidence(engine, world):
-    engine.apply(CreateDocument(ref="doc0", actor="user0", content="c"))
-    ext = engine.state.doc("doc0").external_id
-    world.overrides[Action.UPDATE_DOCUMENT] = obs(403, {"detail": "forbidden"})
-    world.overrides[Action.LIST_DOCUMENTS] = obs(
-        200, [{"id": ext, "content": "tampered", "version": 2}]
-    )
-    with pytest.raises(PropertyViolationError) as exc:
-        engine.apply(UpdateDocument(actor="user1", doc="doc0", content="evil"))
-    err = exc.value
-    assert err.record.status == 403
-    assert err.record.evaluations[-1].property_id == "TI-2"
-    assert [type(o).__name__ for o in err.scenario.operations][-1] == "UpdateDocument"
-    assert len(err.history) == len(engine.history)
-
-
-def test_setup_failure_is_inconclusive_even_when_not_strict(world):
-    e = Engine(ScriptedAdapter(world), strict=False)
-    e.reset()
-    world.overrides[Action.CREATE_ORG] = obs(500, "boom")
-    with pytest.raises(InconclusiveError):
-        e.apply(CreateOrg(ref="org0", name="a"))
-    assert e.history[-1].evaluations[0].property_id == "EXEC"
-
-
-def test_server_error_strict_raises_non_strict_records(engine, world):
-    engine.apply(CreateDocument(ref="doc0", actor="user0", content="c"))
-    world.overrides[Action.READ_DOCUMENT] = obs(500, "boom")
-    with pytest.raises(InconclusiveError):
-        engine.apply(ReadDocument(actor="user0", doc="doc0"))
-    engine.strict = False
-    rec = engine.apply(ReadDocument(actor="user0", doc="doc0"))
-    assert rec.outcome is Outcome.INCONCLUSIVE  # recorded, never reported as PASS
-
-
-def test_transport_error_is_inconclusive(engine, world):
-    world.overrides[Action.LIST_DOCUMENTS] = obs(None, "", error="ConnectError")
-    with pytest.raises(InconclusiveError):
-        engine.apply(ListDocuments(actor="user0"))
+def test_calls_use_real_credentials_and_ids_not_symbolic_refs(seeded):
+    create_call = next(c for c in seeded.adapter.calls if c.action is Action.CREATE_DOCUMENT)
+    assert create_call.credential == seeded.state.user("user0").token != "user0"
+    seeded.apply(ReadDocument(actor="user0", doc="doc0"))
+    assert seeded.adapter.calls[-1].resource_id == seeded.state.doc("doc0").external_id
 
 
 def test_unknown_ref_is_rejected(engine):
@@ -181,3 +167,220 @@ def test_scenario_is_the_executed_operations(engine):
     engine.apply(ListDocuments(actor="user0"))
     ops = engine.scenario.operations
     assert len(ops) == 6 and isinstance(ops[-1], ListDocuments)
+
+
+# -- valid authorised operations are verified, then committed --------------
+
+
+def test_valid_create_is_verified_and_mirrored_with_unique_marker(engine):
+    engine.apply(CreateDocument(ref="doc0", actor="user0", content="same"))
+    engine.apply(CreateDocument(ref="doc1", actor="user0", content="same"))
+    d0, d1 = engine.state.doc("doc0"), engine.state.doc("doc1")
+    assert d0.org == "org0" and d0.version == 1 and d0.content.endswith(d0.marker)
+    assert d0.marker != d1.marker
+
+
+def test_valid_update_and_delete_are_verified_and_committed(seeded):
+    seeded.apply(UpdateDocument(actor="user0", doc="doc0", content="new"))
+    doc = seeded.state.doc("doc0")
+    assert doc.version == 2 and doc.content.startswith("new ")
+    assert doc.marker in doc.content
+    seeded.apply(DeleteDocument(actor="user0", doc="doc0"))
+    assert doc.deleted and not seeded.state.expected_snapshot("org0")
+
+
+def test_valid_operation_issues_a_probe_as_the_actor(seeded):
+    seeded.apply(UpdateDocument(actor="user0", doc="doc0", content="n"))
+    probe = seeded.adapter.calls[-1]
+    assert probe.action is Action.LIST_DOCUMENTS
+    assert probe.credential == seeded.state.user("user0").token
+
+
+def test_authorised_rejection_with_unchanged_state_is_not_an_error(seeded, world):
+    seeded.apply(DeleteDocument(actor="user0", doc="doc0"))
+    before = model_view(seeded)
+    rec = seeded.apply(UpdateDocument(actor="user0", doc="doc0", content="x"))  # 404: gone
+    assert rec.outcome is Outcome.PASS and model_view(seeded) == before
+
+
+def test_update_of_deleted_doc_that_falsely_succeeds_is_unverified(seeded, world):
+    seeded.apply(DeleteDocument(actor="user0", doc="doc0"))
+    world.overrides[Action.UPDATE_DOCUMENT] = obs(200, {"ok": True})
+    ext = seeded.state.doc("doc0").external_id
+    world.docs[ext] = {"id": ext, "org": "o1", "content": "zombie", "version": 1}
+    assert_inconclusive_and_model_untouched(
+        seeded, UpdateDocument(actor="user0", doc="doc0", content="x"), model_view(seeded)
+    )
+
+
+# -- HTTP success without the promised state change ------------------------
+
+
+def test_200_without_persisted_create_is_inconclusive(engine, world):
+    world.skip_persist.add(Action.CREATE_DOCUMENT)
+    err = assert_inconclusive_and_model_untouched(
+        engine, CreateDocument(ref="doc0", actor="user0", content="c"), {}
+    )
+    assert err.record.status == 201 and "expected but missing" in err.record.evaluations[-1].summary
+    assert "doc0" not in engine.state.docs
+
+
+def test_200_without_persisted_update_is_inconclusive(seeded, world):
+    world.skip_persist.add(Action.UPDATE_DOCUMENT)
+    assert_inconclusive_and_model_untouched(
+        seeded, UpdateDocument(actor="user0", doc="doc0", content="new"), model_view(seeded)
+    )
+
+
+def test_200_without_persisted_delete_is_inconclusive(seeded, world):
+    world.skip_persist.add(Action.DELETE_DOCUMENT)
+    assert_inconclusive_and_model_untouched(
+        seeded, DeleteDocument(actor="user0", doc="doc0"), model_view(seeded)
+    )
+    assert not seeded.state.doc("doc0").deleted
+
+
+def test_unverified_transition_halts_even_when_not_strict(seeded, world):
+    seeded.strict = False
+    world.skip_persist.add(Action.UPDATE_DOCUMENT)
+    with pytest.raises(InconclusiveError):
+        seeded.apply(UpdateDocument(actor="user0", doc="doc0", content="new"))
+
+
+def test_persisted_content_differing_from_sent_content_is_inconclusive(engine, world):
+    world.mangle = lambda c: c.upper()
+    assert_inconclusive_and_model_untouched(
+        engine, CreateDocument(ref="doc0", actor="user0", content="c"), {}
+    )
+
+
+def test_wrong_version_after_update_is_inconclusive(seeded, world):
+    ext = seeded.state.doc("doc0").external_id
+    world.docs[ext]["version"] = 5  # app disagrees about the version counter
+    assert_inconclusive_and_model_untouched(
+        seeded, UpdateDocument(actor="user0", doc="doc0", content="n"), model_view(seeded)
+    )
+
+
+def test_create_success_without_document_id_is_inconclusive(engine, world):
+    world.overrides[Action.CREATE_DOCUMENT] = obs(201, {"ok": True})
+    assert_inconclusive_and_model_untouched(
+        engine, CreateDocument(ref="doc0", actor="user0", content="c"), {}
+    )
+
+
+def test_error_response_that_nevertheless_changed_state_is_inconclusive_not_violation(seeded, world):
+    ext = seeded.state.doc("doc0").external_id
+    world.overrides[Action.UPDATE_DOCUMENT] = obs(400, {"detail": "bad"})
+    world.docs[ext]["content"] = "changed anyway"  # applied despite the 400
+    assert_inconclusive_and_model_untouched(
+        seeded, UpdateDocument(actor="user0", doc="doc0", content="n"), model_view(seeded)
+    )
+
+
+# -- the state probe itself must be trustworthy -----------------------------
+
+BAD_PROBES = [
+    obs(None, "", error="ConnectError"),
+    obs(500, "boom"),
+    obs(404, "gone"),
+    obs(200, "not json"),
+    obs(200, {"docs": []}),
+    obs(200, [1]),
+    obs(200, [{"id": "d1", "content": "x"}]),  # no version
+]
+
+
+@pytest.mark.parametrize("probe", BAD_PROBES)
+def test_unavailable_or_malformed_probe_blocks_authorised_commit(seeded, world, probe):
+    world.overrides[Action.LIST_DOCUMENTS] = probe
+    for op in (
+        UpdateDocument(actor="user0", doc="doc0", content="new"),
+        DeleteDocument(actor="user0", doc="doc0"),
+    ):
+        err = assert_inconclusive_and_model_untouched(seeded, op, model_view(seeded))
+        assert "probe unusable" in err.record.evaluations[-1].summary
+
+
+@pytest.mark.parametrize("probe", BAD_PROBES)
+def test_unavailable_or_malformed_probe_on_authorised_create(engine, world, probe):
+    world.overrides[Action.LIST_DOCUMENTS] = probe
+    assert_inconclusive_and_model_untouched(
+        engine, CreateDocument(ref="doc0", actor="user0", content="c"), {}
+    )
+
+
+@pytest.mark.parametrize("probe", BAD_PROBES)
+def test_unavailable_or_malformed_probe_after_forbidden_write_is_inconclusive(seeded, world, probe):
+    world.overrides[Action.LIST_DOCUMENTS] = probe
+    before = model_view(seeded)
+    with pytest.raises(InconclusiveError) as exc:
+        seeded.apply(UpdateDocument(actor="user1", doc="doc0", content="evil"))
+    assert not isinstance(exc.value, PropertyViolationError)
+    assert model_view(seeded) == before
+
+
+# -- unauthorised writes: existing detection preserved ----------------------
+
+
+def test_forbidden_write_with_unchanged_state_passes_and_leaves_model(seeded):
+    before = model_view(seeded)
+    rec = seeded.apply(UpdateDocument(actor="user1", doc="doc0", content="evil"))
+    assert not rec.allowed_by_policy and rec.outcome is Outcome.PASS
+    probe = seeded.adapter.calls[-1]
+    assert probe.credential == seeded.state.user("user0").token  # org0 member, not attacker
+    assert model_view(seeded) == before
+
+
+def test_403_that_still_modified_state_is_a_violation(seeded, world):
+    world.apply_on_deny = True
+    with pytest.raises(PropertyViolationError) as exc:
+        seeded.apply(UpdateDocument(actor="user1", doc="doc0", content="evil"))
+    rec = exc.value.record
+    assert rec.status == 403 and rec.evaluations[-1].property_id == "TI-2"
+    assert rec.evaluations[-1].outcome is Outcome.VIOLATION
+    assert seeded.state.doc("doc0").version == 1  # model was not corrupted by the attack
+
+
+def test_forbidden_delete_that_removed_doc_is_a_violation(seeded, world):
+    world.apply_on_deny = True
+    with pytest.raises(PropertyViolationError) as exc:
+        seeded.apply(DeleteDocument(actor="user2", doc="doc0"))  # viewer
+    assert exc.value.record.evaluations[-1].property_id == "AZ-1"
+    assert not seeded.state.doc("doc0").deleted
+
+
+# -- failures unrelated to verification --------------------------------------
+
+
+def test_setup_failure_is_inconclusive_even_when_not_strict(world):
+    e = Engine(ScriptedAdapter(world), strict=False)
+    e.reset()
+    world.overrides[Action.CREATE_ORG] = obs(500, "boom")
+    with pytest.raises(InconclusiveError):
+        e.apply(CreateOrg(ref="org0", name="a"))
+    assert e.history[-1].evaluations[0].property_id == "EXEC"
+
+
+def test_server_error_strict_raises_non_strict_records(seeded, world):
+    world.overrides[Action.READ_DOCUMENT] = obs(500, "boom")
+    with pytest.raises(InconclusiveError):
+        seeded.apply(ReadDocument(actor="user0", doc="doc0"))
+    seeded.strict = False
+    rec = seeded.apply(ReadDocument(actor="user0", doc="doc0"))
+    assert rec.outcome is Outcome.INCONCLUSIVE
+
+
+def test_server_error_on_authorised_write_halts_and_leaves_model(seeded, world):
+    seeded.strict = False
+    world.overrides[Action.UPDATE_DOCUMENT] = obs(500, "boom")
+    before = model_view(seeded)
+    with pytest.raises(InconclusiveError):
+        seeded.apply(UpdateDocument(actor="user0", doc="doc0", content="n"))
+    assert model_view(seeded) == before
+
+
+def test_transport_error_is_inconclusive(engine, world):
+    world.overrides[Action.LIST_DOCUMENTS] = obs(None, "", error="ConnectError")
+    with pytest.raises(InconclusiveError):
+        engine.apply(ListDocuments(actor="user0"))

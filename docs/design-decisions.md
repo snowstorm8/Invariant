@@ -3,10 +3,12 @@
 - **Hypothesis shrinking is disabled** (`Phase.generate` only). Stateful shrinking is heuristic and
   slow; `analysis/minimizer.py` does deterministic, property-aware deletion instead. The result is
   1-minimal, not globally minimal.
-- **Model sync uses status codes** for *authorised* operations (2xx ⇒ the target accepted it). That
-  only keeps the model aligned; verdicts never depend on status. If the target misbehaves on an
-  authorised operation (e.g. returns 4xx but applied it), the model can drift and a later probe may
-  report a false positive.
+- **Verified state transitions.** After an authorised write the engine lists the actor's own org and
+  compares it with the snapshot the model predicts after the change (2xx: the change; otherwise:
+  no change). Only a match updates the model. A mismatch or unusable probe stops the run as
+  INCONCLUSIVE, never as a violation. Cost: one extra request per authorised write. Residual risk:
+  the verification trusts the listing endpoint; a target whose listing and storage disagree
+  consistently would pass, and unauthorised-write detection shares the same probe mechanism.
 - **Confidentiality detection relies on markers** the engine writes into content. It cannot see
   leaks of data it did not plant (IDs, metadata, user names) or leaks via side channels.
 - **Fixed topology**: two orgs, any number of users with random roles, documents. No sharing,

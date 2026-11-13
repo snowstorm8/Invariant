@@ -7,6 +7,7 @@ identically when replayed.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -83,6 +84,9 @@ class Engine:
         self.state = ModelState()
         self.history: list[StepRecord] = []
         self._ref_counts: dict[str, int] = {}
+        #: Set when a transition could not be verified: the run must stop even
+        #: if non-strict, because the model can no longer be trusted.
+        self._halt = False
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -109,6 +113,7 @@ class Engine:
 
     def apply(self, op: Operation) -> StepRecord:
         index = len(self.history)
+        self._halt = False
         if isinstance(op, (CreateOrg, CreateUser)):
             record = self._apply_setup(index, op)
         else:
@@ -173,9 +178,14 @@ class Engine:
 
         step = ExecutedStep(op, actor, decision, obs, probe, probe_org)
         evaluations = self.evaluator.evaluate(self.state, step)
-        # The model changes only for operations the policy authorised.
-        if decision.allowed:
-            self._sync_model(op, actor, obs, content)
+        # The model changes only for authorised operations whose effect on the
+        # target has been verified; otherwise the run stops as INCONCLUSIVE.
+        if decision.allowed and isinstance(op, (CreateDocument, UpdateDocument, DeleteDocument)):
+            unverified = self._verify_and_commit(op, actor, obs, content)
+            if unverified is not None:
+                evaluations.append(unverified)
+            if unverified is not None or not obs.responded or (obs.status or 0) >= 500:
+                self._halt = True
         return self._record(index, op, decision, obs, evaluations)
 
     @staticmethod
@@ -213,35 +223,88 @@ class Engine:
             data=data or {},
         )
 
-    def _sync_model(
-        self, op: Operation, actor: UserModel, obs: Observation, content: str | None
-    ) -> None:
-        """Mirror an *authorised* operation into the expected state.
+    def _verify_and_commit(
+        self,
+        op: CreateDocument | UpdateDocument | DeleteDocument,
+        actor: UserModel,
+        obs: Observation,
+        content: str | None,
+    ) -> Evaluation | None:
+        """Commit an authorised write to the model only if the target proves it.
 
-        This is the one place a status code is consulted, and only to keep the
-        model in step with what the target accepted; it is never used to decide
-        whether a property holds.
+        The actor lists its own org (every role may) and the listing must equal
+        the snapshot the model predicts *after* the transition: a 2xx predicts
+        the change, anything else predicts no change. The model is mutated only
+        on a match. Returns None when verified (or when there is no usable
+        response, which the evaluator already reports), else an INCONCLUSIVE
+        evaluation. A failed authorised operation is never a violation.
         """
+        if not obs.responded or (obs.status or 0) >= 500:
+            return None
         succeeded = obs.status is not None and 200 <= obs.status < 300
-        if not succeeded:
-            return
-        body: Any = obs.json_body()
+        expected = dict(self.state.expected_snapshot(actor.org))
+        commit: Callable[[], None] | None = None
+
         match op:
-            case CreateDocument() if isinstance(body, dict) and isinstance(body.get("id"), str):
+            case CreateDocument() if succeeded:
+                body: Any = obs.json_body()
+                doc_id = body.get("id") if isinstance(body, dict) else None
+                if not isinstance(doc_id, str):
+                    return self._unverified(op, "success response carries no document id", obs)
                 assert content is not None
-                marker = content[content.rindex("<<INV:") :]
-                self.state.docs[op.ref] = DocModel(
-                    op.ref, actor.org, body["id"], content, marker
-                )
-            case UpdateDocument():
+                expected[doc_id] = (content, 1)
+                commit = lambda: self._commit_create(op, actor, doc_id, content)  # noqa: E731
+            case UpdateDocument() if succeeded:
                 doc = self.state.doc(op.doc)
                 if not doc.deleted:
                     assert content is not None
-                    doc.content = content
-                    doc.marker = content[content.rindex("<<INV:") :]
-                    doc.version += 1
-            case DeleteDocument():
-                self.state.doc(op.doc).deleted = True
+                    expected[doc.external_id] = (content, doc.version + 1)
+                    commit = lambda: self._commit_update(op, content)  # noqa: E731
+            case DeleteDocument() if succeeded:
+                doc = self.state.doc(op.doc)
+                if not doc.deleted:
+                    expected.pop(doc.external_id, None)
+                    commit = lambda: self._commit_delete(op)  # noqa: E731
+
+        probe = self.adapter.execute(Call(action=Action.LIST_DOCUMENTS, credential=actor.token))
+        diffs = self.evaluator.snapshot_diff(probe, expected)
+        if diffs is None:
+            return self._unverified(op, "state probe unusable", probe)
+        if diffs:
+            claim = "reported success" if succeeded else f"returned {obs.status}"
+            return self._unverified(
+                op,
+                f"{claim} but the observed state does not match the expected transition: "
+                + "; ".join(diffs),
+                obs,
+            )
+        if commit is not None:
+            commit()
+        return None
+
+    @staticmethod
+    def _unverified(op: Operation, reason: str, obs: Observation) -> Evaluation:
+        return Evaluation(
+            property_id=EXECUTION.id,
+            outcome=Outcome.INCONCLUSIVE,
+            summary=f"authorised {op.kind} not verified: {reason}",
+            evidence={"status": obs.status, "error": obs.error, "body": obs.excerpt()},
+        )
+
+    def _commit_create(
+        self, op: CreateDocument, actor: UserModel, doc_id: str, content: str
+    ) -> None:
+        marker = content[content.rindex("<<INV:") :]
+        self.state.docs[op.ref] = DocModel(op.ref, actor.org, doc_id, content, marker)
+
+    def _commit_update(self, op: UpdateDocument, content: str) -> None:
+        doc = self.state.doc(op.doc)
+        doc.content = content
+        doc.marker = content[content.rindex("<<INV:") :]
+        doc.version += 1
+
+    def _commit_delete(self, op: DeleteDocument) -> None:
+        self.state.doc(op.doc).deleted = True
 
     def _record(
         self,
@@ -274,7 +337,7 @@ class Engine:
         inconclusive = [e for e in record.evaluations if e.outcome is Outcome.INCONCLUSIVE]
         if inconclusive:
             is_setup = isinstance(record.operation, (CreateOrg, CreateUser))
-            if self.strict or is_setup:
+            if self.strict or is_setup or self._halt:
                 first = inconclusive[0]
                 raise InconclusiveError(
                     f"inconclusive at step {record.index}: {first.summary}",
