@@ -3,8 +3,10 @@
 import pytest
 from vulnerable_saas.target import adapter_for, fixed_adapter, vulnerable_adapter
 
+from invariant.adapters.base import Action, Adapter, Observation
 from invariant.analysis.minimizer import minimize, violates
 from invariant.analysis.reproduction import replay
+from invariant.core.engine import InconclusiveError
 from invariant.core.scenario import (
     CreateDocument,
     CreateOrg,
@@ -17,6 +19,7 @@ from invariant.core.scenario import (
 )
 from invariant.evaluation.violations import Outcome
 from invariant.exploration.runner import explore
+from invariant.exploration.state_machine import ExplorationSink, build_state_machine
 
 SETUP = [
     CreateOrg(ref="org0", name="a"),
@@ -162,3 +165,118 @@ def test_runs_are_isolated_state_does_not_leak_between_replays():
     second = replay(s, vulnerable_adapter)
     assert first.outcome is second.outcome is Outcome.VIOLATION
     assert [r.status for r in first.history] == [r.status for r in second.history]
+
+
+# -- non-strict exploration must not turn INCONCLUSIVE into PASS -------------
+
+
+class BrokenReads(Adapter):
+    """A working target whose single-document reads always answer 500.
+
+    Reads are not used to verify writes, so a non-strict engine records the
+    step as INCONCLUSIVE and carries on instead of stopping the run.
+    """
+
+    def __init__(self, defects=frozenset()):
+        self.inner = adapter_for(defects)
+        #: Every call this instance received, in order, with the status it answered.
+        self.log: list[tuple[Action, int | None]] = []
+
+    def reset(self):
+        self.inner.reset()
+
+    def execute(self, call):
+        if call.action is Action.READ_DOCUMENT:
+            observation = Observation(status=500, body="boom")
+        else:
+            observation = self.inner.execute(call)
+        self.log.append((call.action, observation.status))
+        return observation
+
+    def close(self):
+        self.inner.close()
+
+
+@pytest.mark.parametrize("strict", [True, False])
+def test_inconclusive_steps_never_yield_pass_regardless_of_strict(strict):
+    result = explore(BrokenReads, seed=1, max_examples=20, strict=strict)
+    assert result.outcome is Outcome.INCONCLUSIVE
+    assert result.report.finding.property_id == "EXEC"
+    assert result.report.finding.outcome is Outcome.INCONCLUSIVE
+    assert result.report.reproduced is True
+    assert isinstance(result.report.scenario.operations[-1], ReadDocument)
+
+
+def drive_until_failed_read(strict):
+    """One exploration execution, driven by hand up to its first failing read.
+
+    The rules are called directly, in a fixed order, on the same state machine
+    class ``explore()`` hands to Hypothesis, so nothing here depends on what
+    Hypothesis happens to generate. Exactly one adapter instance is involved.
+    """
+    adapter, sink = BrokenReads(), ExplorationSink()
+    machine_cls = build_state_machine(lambda: adapter, sink=sink, strict=strict)
+    machine = machine_cls()
+    machine.provision_orgs()
+    user = machine.create_user(org="org0", role=Role.ADMIN)
+    doc = machine.create_document(actor=user, content="abc")
+    assert doc == "doc0" and sink.failures == []  # healthy until the read
+    return machine, adapter, sink, user, doc
+
+
+def test_non_strict_execution_continues_on_the_same_adapter_after_an_inconclusive_read():
+    machine, adapter, sink, user, doc = drive_until_failed_read(strict=False)
+
+    machine.read_document(actor=user, doc=doc)  # INCONCLUSIVE, must not raise
+    calls_at_failure = len(adapter.log)
+    assert adapter.log[-1] == (Action.READ_DOCUMENT, 500)
+    read_step = machine.engine.history[-1]
+    assert read_step.outcome is Outcome.INCONCLUSIVE
+
+    # The INCONCLUSIVE step is reported to the sink although nothing was raised.
+    assert len(sink.failures) == 1
+    failure = sink.failures[0]
+    assert isinstance(failure, InconclusiveError)
+    assert failure.record is read_step
+    assert isinstance(failure.scenario.operations[-1], ReadDocument)
+
+    # The very same adapter instance then serves further operations, which are
+    # judged normally and change the target: the execution really continued.
+    machine.list_documents(actor=user)
+    machine.update_document(actor=user, doc=doc, content="xyz")
+    later = adapter.log[calls_at_failure:]
+    assert (Action.LIST_DOCUMENTS, 200) in later
+    assert (Action.UPDATE_DOCUMENT, 200) in later
+    assert [r.outcome for r in machine.engine.history[read_step.index + 1 :]] == [
+        Outcome.PASS,
+        Outcome.PASS,
+    ]
+    assert machine.engine.state.doc(doc).version == 2
+
+    # A second failing read is still executed, but the execution is reported once.
+    machine.read_document(actor=user, doc=doc)
+    assert adapter.log[-1] == (Action.READ_DOCUMENT, 500)
+    assert len(sink.failures) == 1
+    machine.teardown()
+
+
+def test_strict_execution_stops_at_the_inconclusive_read():
+    machine, adapter, sink, user, doc = drive_until_failed_read(strict=True)
+    with pytest.raises(InconclusiveError) as raised:
+        machine.read_document(actor=user, doc=doc)
+    assert adapter.log[-1] == (Action.READ_DOCUMENT, 500)
+    assert sink.failures == [raised.value]
+    machine.teardown()
+
+
+def test_non_strict_violation_still_outranks_inconclusive():
+    result = explore(
+        lambda: BrokenReads(frozenset({"viewer-can-update"})), seed=0, strict=False
+    )
+    assert result.outcome is Outcome.VIOLATION
+    assert result.report.finding.property_id == "AZ-1"
+
+
+def test_non_strict_clean_target_still_passes():
+    result = explore(fixed_adapter, seed=0, max_examples=30, strict=False)
+    assert result.outcome is Outcome.PASS and result.report.finding is None

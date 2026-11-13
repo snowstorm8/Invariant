@@ -9,18 +9,19 @@ from invariant.core.scenario import CreateDocument, DeleteDocument, ReadDocument
 from invariant.evaluation.evaluator import Evaluator, ExecutedStep
 from invariant.evaluation.violations import Outcome, worst
 from invariant.properties.authorization import decide
+from invariant.properties.base import OrgSnapshot
 
 LEAK = {"id": "doc_6", "org_id": "org_1", "content": "secret <<INV:3>>", "version": 1}
 
 
 def step(state, op, observation, probe=None, probe_org=None):
+    taken = probe is not None and probe_org is not None
     return ExecutedStep(
         op=op,
         actor=state.user(op.actor),
         decision=decide(state, op),
         observation=observation,
-        probe=probe,
-        probe_org=probe_org,
+        probes={OrgSnapshot(probe_org): probe} if taken else {},
     )
 
 

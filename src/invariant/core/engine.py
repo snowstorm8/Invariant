@@ -28,6 +28,7 @@ from invariant.core.state import DocModel, ModelState, OrgModel, UserModel
 from invariant.evaluation.evaluator import Evaluator, ExecutedStep
 from invariant.evaluation.violations import Evaluation, Outcome, worst
 from invariant.properties.authorization import Decision, decide
+from invariant.properties.base import ProbeRequest, Step
 from invariant.properties.registry import EXECUTION
 
 
@@ -164,8 +165,8 @@ class Engine:
                 summary=f"provisioning failed for {op.ref}",
                 evidence={"status": obs.status, "error": obs.error, "body": obs.excerpt()},
             )
-            return self._record(index, op, Decision(True, "provisioning"), obs, [evaluation])
-        return self._record(index, op, Decision(True, "provisioning"), obs, [])
+            return self._record(index, op, Decision.permit("provisioning"), obs, [evaluation])
+        return self._record(index, op, Decision.permit("provisioning"), obs, [])
 
     def _apply_actor_op(self, index: int, op: Operation) -> StepRecord:
         assert not isinstance(op, (CreateOrg, CreateUser))
@@ -174,21 +175,17 @@ class Engine:
         content = self._payload_content(index, op)
         obs = self.adapter.execute(self._build_call(op, actor, content))
 
-        probe: Observation | None = None
-        probe_org: str | None = None
-        if not decision.allowed and isinstance(
-            op, (CreateDocument, UpdateDocument, DeleteDocument)
-        ):
-            probe_org = (
-                actor.org if isinstance(op, CreateDocument) else self.state.doc(op.doc).org
-            )
-            member = self.state.member_of(probe_org)
-            if member is not None:
-                probe = self.adapter.execute(
-                    Call(action=Action.LIST_DOCUMENTS, credential=member.token)
-                )
+        # Plan, probe, judge. The properties in scope say which evidence they
+        # need; the engine only performs the I/O. Planning does not depend on
+        # the response, so the probes are taken even if the operation itself
+        # got no answer.
+        probes: dict[ProbeRequest, Observation] = {}
+        for request in self.evaluator.plan(Step(op, actor, decision, self.state)):
+            probe = self._run_probe(request)
+            if probe is not None:
+                probes[request] = probe
 
-        step = ExecutedStep(op, actor, decision, obs, probe, probe_org)
+        step = ExecutedStep(op, actor, decision, obs, probes=probes)
         evaluations = self.evaluator.evaluate(self.state, step)
         # The model changes only for authorised operations whose effect on the
         # target has been verified; otherwise the run stops as INCONCLUSIVE.
@@ -201,6 +198,17 @@ class Engine:
                     unverified.summary if unverified is not None else "uncertain write outcome"
                 )
         return self._record(index, op, decision, obs, evaluations)
+
+    def _run_probe(self, request: ProbeRequest) -> Observation | None:
+        """List the requested org as one of its members.
+
+        None if the org has no member to ask as: the probe cannot be taken, and
+        the evaluator reports the properties that needed it as INCONCLUSIVE.
+        """
+        member = self.state.member_of(request.org)
+        if member is None:
+            return None
+        return self.adapter.execute(Call(action=Action.LIST_DOCUMENTS, credential=member.token))
 
     @staticmethod
     def _payload_content(index: int, op: Operation) -> str | None:

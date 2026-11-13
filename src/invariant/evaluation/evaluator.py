@@ -1,31 +1,33 @@
 """Deterministic evaluation of security properties.
 
 Verdicts come from structured observations compared against the expected-state
-model, not from HTTP status codes:
+model, not from HTTP status codes. How each property is judged lives in
+``invariant.properties.checks``; this module is the framework around them:
 
-* Confidentiality (TI-1): every response body is scanned for the unique marker
-  of documents owned by *other* organizations. A 404 whose body leaks a marker
-  is a violation; a 200 that contains none is not.
-* Integrity (TI-2, AZ-1): after an operation the policy forbids, the evaluator
-  inspects a *state probe* (a legitimate listing of the affected org) and
-  compares it with the model. A 403 that still changed state is a violation.
+* ``plan``: which probes the properties in scope need for a step.
+* ``judge``: run each property in scope on the response and its evidence, and
+  stamp its id on the result.
 
-Anything that prevents a judgement (no response, 5xx, unusable probe) is
-INCONCLUSIVE, never PASS.
+The framework, not the properties, decides what missing evidence means.
+Anything that prevents a judgement (no response, 5xx, a probe that was not
+taken or cannot be parsed) is INCONCLUSIVE, never PASS.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 from invariant.adapters.base import Observation
 from invariant.core.scenario import CreateDocument, DeleteDocument, Operation, UpdateDocument
 from invariant.core.state import ModelState, UserModel
 from invariant.properties.authorization import Decision
-from invariant.properties.isolation import TENANT_READ_ISOLATION
-from invariant.properties.registry import EXECUTION, PROPERTIES
+from invariant.properties.base import ProbeRequest, SecurityProperty, Step
+from invariant.properties.checks import CHECKS
+from invariant.properties.registry import EXECUTION
 
+from .snapshots import Snapshot, diff_snapshots, parse_snapshot
 from .violations import Evaluation, Outcome
 
 
@@ -37,147 +39,135 @@ class ExecutedStep:
     actor: UserModel
     decision: Decision
     observation: Observation
-    #: Observation of a legitimate listing of ``probe_org``, taken after an
-    #: operation that the policy forbids. None if no probe was taken.
-    probe: Observation | None = None
-    probe_org: str | None = None
+    #: Every probe taken for this step, keyed by the request it answers. A
+    #: request that could not be executed at all is simply absent.
+    probes: Mapping[ProbeRequest, Observation] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ProbeFailure:
+    """A probe that was taken but cannot be used as evidence."""
+
+    observation: Observation
+
+
+ProbeResult = Snapshot | ProbeFailure
 
 
 class Evaluator:
-    def evaluate(self, state: ModelState, step: ExecutedStep) -> list[Evaluation]:
-        obs = step.observation
-        if not obs.responded:
-            return [self._inconclusive(EXECUTION.id, f"no response: {obs.error}")]
+    #: Properties judged on every actor step, in evaluation order.
+    properties: Sequence[SecurityProperty] = CHECKS
+
+    def plan(self, step: Step) -> list[ProbeRequest]:
+        """The probes needed to judge ``step``: what every property in scope
+        requires, in evaluation order, each request once.
+
+        Pure, and independent of the target's response, so the calls a scenario
+        makes are a function of the scenario and the model alone.
+        """
+        requests: dict[ProbeRequest, None] = {}
+        for prop in self.properties:
+            if prop.applies(step):
+                requests.update(dict.fromkeys(prop.requires(step)))
+        return list(requests)
+
+    def judge(
+        self, step: Step, response: Observation, probes: Mapping[ProbeRequest, Observation]
+    ) -> list[Evaluation]:
+        """Judge one step against every property in scope.
+
+        ``probes`` holds the raw observation for each planned request that was
+        executed. The framework owns EXEC, evidence validation, property id
+        attribution and ordering; each property only supplies its scope, its
+        evidence requirements and a verdict. No I/O happens here.
+        """
+        # Whether the property set can account for the policy's denials does not
+        # depend on the target, so it is checked before anything else, including
+        # the no-response shortcut below.
+        self._require_denials_covered(step)
+        if not response.responded:
+            return [self._inconclusive(EXECUTION.id, f"no response: {response.error}")]
 
         results: list[Evaluation] = []
-        if obs.status is not None and obs.status >= 500:
+        if response.status is not None and response.status >= 500:
             results.append(
                 self._inconclusive(
                     EXECUTION.id,
-                    f"server error {obs.status}; outcome of the operation is unknown",
-                    {"body": obs.excerpt()},
+                    f"server error {response.status}; outcome of the operation is unknown",
+                    {"body": response.excerpt()},
                 )
             )
-        results.append(self._confidentiality(state, step))
-        if not step.decision.allowed and isinstance(
-            step.op, (CreateDocument, UpdateDocument, DeleteDocument)
-        ):
-            results.append(self._integrity(state, step))
+        parsed = {request: self._probe_result(probe) for request, probe in probes.items()}
+        for prop in self.properties:
+            if not prop.applies(step):
+                continue
+            results.append(self._judge(prop, step, response, prop.requires(step), parsed))
         return results
 
-    # -- TI-1 -------------------------------------------------------------
+    def _require_denials_covered(self, step: Step) -> None:
+        """A write the policy denied can only be judged from the state it left
+        behind. If a denial names a property that did not ask for that
+        evidence, the property is not implemented: fail loudly rather than
+        report nothing about it. Depends only on the step and the configured
+        properties, never on the response."""
+        if not isinstance(step.op, (CreateDocument, UpdateDocument, DeleteDocument)):
+            return
+        judged_from_evidence = {
+            prop.id for prop in self.properties if prop.applies(step) and prop.requires(step)
+        }
+        unjudged = [i for i in step.decision.property_ids if i not in judged_from_evidence]
+        assert not unjudged, f"denied write attributed to {unjudged}, which no property evaluates"
 
-    def _confidentiality(self, state: ModelState, step: ExecutedStep) -> Evaluation:
-        obs = step.observation
-        leaked = [
-            {"doc": d.ref, "owner_org": d.org, "marker": d.marker}
-            for d in state.foreign_docs(step.actor.org)
-            if d.marker in obs.body
-        ]
-        if leaked:
-            return Evaluation(
-                property_id=TENANT_READ_ISOLATION.id,
-                outcome=Outcome.VIOLATION,
-                summary=(
-                    f"{step.actor.ref} ({step.actor.org}) received data of "
-                    + ", ".join(f"{x['doc']} (owned by {x['owner_org']})" for x in leaked)
-                ),
-                evidence={
-                    "leaked": leaked,
-                    "status": obs.status,
-                    "response_excerpt": obs.excerpt(),
-                },
-            )
+    def evaluate(self, state: ModelState, step: ExecutedStep) -> list[Evaluation]:
+        """Judge an executed step: ``judge`` on the probes it carries."""
+        planned = Step(step.op, step.actor, step.decision, state)
+        return self.judge(planned, step.observation, step.probes)
+
+    @staticmethod
+    def _probe_result(probe: Observation) -> ProbeResult:
+        snapshot = parse_snapshot(probe)
+        return ProbeFailure(probe) if snapshot is None else snapshot
+
+    def _judge(
+        self,
+        prop: SecurityProperty,
+        step: Step,
+        response: Observation,
+        requests: tuple[ProbeRequest, ...],
+        probes: Mapping[ProbeRequest, ProbeResult],
+    ) -> Evaluation:
+        """One property's evaluation. Missing or unusable evidence is decided
+        here, so a property is never asked to judge without it."""
+        evidence: dict[ProbeRequest, Snapshot] = {}
+        for request in requests:
+            result = probes.get(request)
+            if result is None:
+                return self._inconclusive(
+                    prop.id, "no state probe was taken after a forbidden write"
+                )
+            if isinstance(result, ProbeFailure):
+                probe = result.observation
+                return self._inconclusive(
+                    prop.id,
+                    "state probe unusable",
+                    {"status": probe.status, "error": probe.error, "body": probe.excerpt()},
+                )
+            evidence[request] = result
+        verdict = prop.evaluate(step, response, evidence)
         return Evaluation(
-            property_id=TENANT_READ_ISOLATION.id,
-            outcome=Outcome.PASS,
-            summary="no data of other organizations observed in the response",
+            property_id=prop.id,
+            outcome=verdict.outcome,
+            summary=verdict.summary,
+            evidence=verdict.evidence,
         )
 
-    # -- TI-2 / AZ-1 ------------------------------------------------------
-
-    def _integrity(self, state: ModelState, step: ExecutedStep) -> Evaluation:
-        prop_id = step.decision.property_id
-        assert prop_id is not None and prop_id in PROPERTIES
-        probe, org = step.probe, step.probe_org
-        if probe is None or org is None:
-            return self._inconclusive(prop_id, "no state probe was taken after a forbidden write")
-        observed = self._parse_snapshot(probe)
-        if observed is None:
-            return self._inconclusive(
-                prop_id,
-                "state probe unusable",
-                {"status": probe.status, "error": probe.error, "body": probe.excerpt()},
-            )
-        expected = state.expected_snapshot(org)
-        diffs = self._diff(expected, observed)
-        if diffs:
-            return Evaluation(
-                property_id=prop_id,
-                outcome=Outcome.VIOLATION,
-                summary=(
-                    f"forbidden operation ({step.decision.reason}) changed application state "
-                    f"of {org}: " + "; ".join(diffs)
-                ),
-                evidence={
-                    "reason": step.decision.reason,
-                    "differences": diffs,
-                    "response_status": step.observation.status,
-                    "response_excerpt": step.observation.excerpt(),
-                },
-            )
-        return Evaluation(
-            property_id=prop_id,
-            outcome=Outcome.PASS,
-            summary=f"state of {org} unchanged after forbidden operation ({step.decision.reason})",
-        )
-
-    def snapshot_diff(
-        self, probe: Observation, expected: dict[str, tuple[str, int]]
-    ) -> list[str] | None:
+    def snapshot_diff(self, probe: Observation, expected: Snapshot) -> list[str] | None:
         """Differences between a listing observation and ``expected``.
 
         None means the probe is unusable (no response, non-200, malformed).
         """
-        observed = self._parse_snapshot(probe)
-        return None if observed is None else self._diff(expected, observed)
-
-    @staticmethod
-    def _parse_snapshot(probe: Observation) -> dict[str, tuple[str, int]] | None:
-        if probe.status != 200:
-            return None
-        body: Any = probe.json_body()
-        if not isinstance(body, list):
-            return None
-        snapshot: dict[str, tuple[str, int]] = {}
-        for item in body:
-            if not isinstance(item, dict):
-                return None
-            doc_id, content, version = item.get("id"), item.get("content"), item.get("version")
-            if not (
-                isinstance(doc_id, str) and isinstance(content, str) and isinstance(version, int)
-            ):
-                return None
-            snapshot[doc_id] = (content, version)
-        return snapshot
-
-    @staticmethod
-    def _diff(
-        expected: dict[str, tuple[str, int]], observed: dict[str, tuple[str, int]]
-    ) -> list[str]:
-        diffs: list[str] = []
-        for doc_id in sorted(expected.keys() - observed.keys()):
-            diffs.append(f"{doc_id} expected but missing")
-        for doc_id in sorted(observed.keys() - expected.keys()):
-            diffs.append(f"{doc_id} present but not expected")
-        for doc_id in sorted(expected.keys() & observed.keys()):
-            if expected[doc_id] != observed[doc_id]:
-                diffs.append(
-                    f"{doc_id} expected (content={expected[doc_id][0]!r}, "
-                    f"version={expected[doc_id][1]}) observed (content="
-                    f"{observed[doc_id][0]!r}, version={observed[doc_id][1]})"
-                )
-        return diffs
+        observed = parse_snapshot(probe)
+        return None if observed is None else diff_snapshots(expected, observed)
 
     @staticmethod
     def _inconclusive(
