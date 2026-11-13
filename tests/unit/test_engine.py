@@ -488,3 +488,31 @@ def test_unrelated_inconclusive_observation_does_not_invalidate(seeded, world):
     world.overrides[Action.READ_DOCUMENT] = obs(500, "boom")
     assert seeded.apply(ReadDocument(actor="user0", doc="doc0")).outcome is Outcome.INCONCLUSIVE
     seeded.apply(ListDocuments(actor="user0"))  # non-strict continues, as before
+
+
+def test_failed_reset_on_a_valid_engine_makes_it_unusable(seeded, world):
+    adapter = seeded.adapter
+    boom = AdapterError("cannot reset")
+
+    def failing_reset():
+        raise boom
+
+    adapter.reset = failing_reset
+    calls, history, model = len(adapter.calls), list(seeded.history), model_view(seeded)
+    refs = dict(seeded._ref_counts)
+    with pytest.raises(AdapterError) as exc:
+        seeded.reset()
+    assert exc.value is boom  # original exception propagates unchanged
+    for op in (ListDocuments(actor="user0"), CreateOrg(ref="org9", name="x")):
+        with pytest.raises(EngineInvalidatedError):
+            seeded.apply(op)
+    assert len(adapter.calls) == calls  # rejected before contacting the adapter
+    assert seeded.history == history and model_view(seeded) == model
+    assert seeded.state.users and seeded._ref_counts == refs  # nothing was cleared
+
+    del adapter.reset  # target recovers
+    seeded.reset()
+    assert not seeded.history and not seeded.state.users
+    seeded.apply(CreateOrg(ref="org0", name="a"))
+    seeded.apply(CreateUser(ref="user0", org="org0", role=Role.ADMIN))
+    assert seeded.apply(ListDocuments(actor="user0")).outcome is Outcome.PASS

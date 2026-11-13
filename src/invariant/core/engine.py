@@ -97,7 +97,10 @@ class Engine:
 
     def reset(self) -> None:
         """Reset the target (verified by the adapter) and forget all model state."""
-        self.adapter.reset()  # if this raises, the engine stays invalid
+        # Unusable from the moment a reset starts: if adapter.reset() raises, the
+        # target may be partially reset and the engine must not run against it.
+        self._invalid = self._invalid or "reset in progress or failed"
+        self.adapter.reset()
         self.state = ModelState()
         self.history = []
         self._ref_counts = {}
