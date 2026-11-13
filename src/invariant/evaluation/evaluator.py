@@ -26,6 +26,7 @@ from invariant.properties.authorization import Decision
 from invariant.properties.isolation import TENANT_READ_ISOLATION
 from invariant.properties.registry import EXECUTION, PROPERTIES
 
+from .snapshots import Snapshot, diff_snapshots, parse_snapshot
 from .violations import Evaluation, Outcome
 
 
@@ -102,7 +103,7 @@ class Evaluator:
         probe, org = step.probe, step.probe_org
         if probe is None or org is None:
             return self._inconclusive(prop_id, "no state probe was taken after a forbidden write")
-        observed = self._parse_snapshot(probe)
+        observed = parse_snapshot(probe)
         if observed is None:
             return self._inconclusive(
                 prop_id,
@@ -110,7 +111,7 @@ class Evaluator:
                 {"status": probe.status, "error": probe.error, "body": probe.excerpt()},
             )
         expected = state.expected_snapshot(org)
-        diffs = self._diff(expected, observed)
+        diffs = diff_snapshots(expected, observed)
         if diffs:
             return Evaluation(
                 property_id=prop_id,
@@ -132,52 +133,13 @@ class Evaluator:
             summary=f"state of {org} unchanged after forbidden operation ({step.decision.reason})",
         )
 
-    def snapshot_diff(
-        self, probe: Observation, expected: dict[str, tuple[str, int]]
-    ) -> list[str] | None:
+    def snapshot_diff(self, probe: Observation, expected: Snapshot) -> list[str] | None:
         """Differences between a listing observation and ``expected``.
 
         None means the probe is unusable (no response, non-200, malformed).
         """
-        observed = self._parse_snapshot(probe)
-        return None if observed is None else self._diff(expected, observed)
-
-    @staticmethod
-    def _parse_snapshot(probe: Observation) -> dict[str, tuple[str, int]] | None:
-        if probe.status != 200:
-            return None
-        body: Any = probe.json_body()
-        if not isinstance(body, list):
-            return None
-        snapshot: dict[str, tuple[str, int]] = {}
-        for item in body:
-            if not isinstance(item, dict):
-                return None
-            doc_id, content, version = item.get("id"), item.get("content"), item.get("version")
-            if not (
-                isinstance(doc_id, str) and isinstance(content, str) and isinstance(version, int)
-            ):
-                return None
-            snapshot[doc_id] = (content, version)
-        return snapshot
-
-    @staticmethod
-    def _diff(
-        expected: dict[str, tuple[str, int]], observed: dict[str, tuple[str, int]]
-    ) -> list[str]:
-        diffs: list[str] = []
-        for doc_id in sorted(expected.keys() - observed.keys()):
-            diffs.append(f"{doc_id} expected but missing")
-        for doc_id in sorted(observed.keys() - expected.keys()):
-            diffs.append(f"{doc_id} present but not expected")
-        for doc_id in sorted(expected.keys() & observed.keys()):
-            if expected[doc_id] != observed[doc_id]:
-                diffs.append(
-                    f"{doc_id} expected (content={expected[doc_id][0]!r}, "
-                    f"version={expected[doc_id][1]}) observed (content="
-                    f"{observed[doc_id][0]!r}, version={observed[doc_id][1]})"
-                )
-        return diffs
+        observed = parse_snapshot(probe)
+        return None if observed is None else diff_snapshots(expected, observed)
 
     @staticmethod
     def _inconclusive(
