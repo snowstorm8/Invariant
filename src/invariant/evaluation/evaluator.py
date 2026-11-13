@@ -16,6 +16,7 @@ INCONCLUSIVE, never PASS.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,6 +24,8 @@ from invariant.adapters.base import Observation
 from invariant.core.scenario import CreateDocument, DeleteDocument, Operation, UpdateDocument
 from invariant.core.state import ModelState, UserModel
 from invariant.properties.authorization import Decision
+from invariant.properties.base import OrgSnapshot, ProbeRequest, SecurityProperty, Step
+from invariant.properties.checks import CHECKS
 from invariant.properties.isolation import TENANT_READ_ISOLATION
 from invariant.properties.registry import EXECUTION, PROPERTIES
 
@@ -44,8 +47,28 @@ class ExecutedStep:
     probe_org: str | None = None
 
 
+@dataclass(frozen=True)
+class ProbeFailure:
+    """A probe that was taken but cannot be used as evidence."""
+
+    observation: Observation
+
+
+ProbeResult = Snapshot | ProbeFailure
+
+
 class Evaluator:
+    #: Properties judged on every actor step, in evaluation order.
+    properties: Sequence[SecurityProperty] = CHECKS
+
     def evaluate(self, state: ModelState, step: ExecutedStep) -> list[Evaluation]:
+        """Judge one executed step against every property in scope.
+
+        The framework owns EXEC, evidence validation, property id attribution
+        and ordering; each property only supplies its scope, its evidence
+        requirements and a verdict. No I/O happens here: the probe the engine
+        already took is adapted into the evidence the properties asked for.
+        """
         obs = step.observation
         if not obs.responded:
             return [self._inconclusive(EXECUTION.id, f"no response: {obs.error}")]
@@ -59,16 +82,100 @@ class Evaluator:
                     {"body": obs.excerpt()},
                 )
             )
-        results.append(self._confidentiality(state, step))
+        planned = Step(step.op, step.actor, step.decision, state)
+        probes = self._probe_results(step)
+        requested_evidence = False
+        for prop in self.properties:
+            if not prop.applies(planned):
+                continue
+            requests = prop.requires(planned)
+            requested_evidence = requested_evidence or bool(requests)
+            results.append(self._judge(prop, planned, obs, requests, probes))
+        # A write the policy denied can only be judged from the state it left
+        # behind. If no property asked for that evidence, the decision names a
+        # property that is not implemented: fail loudly rather than report
+        # nothing about the write.
         if not step.decision.allowed and isinstance(
             step.op, (CreateDocument, UpdateDocument, DeleteDocument)
         ):
-            results.append(self._integrity(state, step))
+            assert requested_evidence, (
+                f"denied write attributed to {step.decision.property_id!r}, "
+                "which no property evaluates"
+            )
         return results
 
-    # -- TI-1 -------------------------------------------------------------
+    @staticmethod
+    def _probe_results(step: ExecutedStep) -> dict[ProbeRequest, ProbeResult]:
+        """The probe the engine took, keyed by the request it answers."""
+        if step.probe is None or step.probe_org is None:
+            return {}
+        snapshot = parse_snapshot(step.probe)
+        return {
+            OrgSnapshot(step.probe_org): (
+                ProbeFailure(step.probe) if snapshot is None else snapshot
+            )
+        }
 
-    def _confidentiality(self, state: ModelState, step: ExecutedStep) -> Evaluation:
+    def _judge(
+        self,
+        prop: SecurityProperty,
+        step: Step,
+        response: Observation,
+        requests: tuple[ProbeRequest, ...],
+        probes: Mapping[ProbeRequest, ProbeResult],
+    ) -> Evaluation:
+        """One property's evaluation. Missing or unusable evidence is decided
+        here, so a property is never asked to judge without it."""
+        evidence: dict[ProbeRequest, Snapshot] = {}
+        for request in requests:
+            result = probes.get(request)
+            if result is None:
+                return self._inconclusive(
+                    prop.id, "no state probe was taken after a forbidden write"
+                )
+            if isinstance(result, ProbeFailure):
+                probe = result.observation
+                return self._inconclusive(
+                    prop.id,
+                    "state probe unusable",
+                    {"status": probe.status, "error": probe.error, "body": probe.excerpt()},
+                )
+            evidence[request] = result
+        verdict = prop.evaluate(step, response, evidence)
+        return Evaluation(
+            property_id=prop.id,
+            outcome=verdict.outcome,
+            summary=verdict.summary,
+            evidence=verdict.evidence,
+        )
+
+    # -- legacy reference ---------------------------------------------------
+    # The implementation before properties were extracted. Kept only so the
+    # differential tests can compare against it; nothing in src/ calls it.
+
+    def _legacy_evaluate(self, state: ModelState, step: ExecutedStep) -> list[Evaluation]:
+        obs = step.observation
+        if not obs.responded:
+            return [self._inconclusive(EXECUTION.id, f"no response: {obs.error}")]
+
+        results: list[Evaluation] = []
+        if obs.status is not None and obs.status >= 500:
+            results.append(
+                self._inconclusive(
+                    EXECUTION.id,
+                    f"server error {obs.status}; outcome of the operation is unknown",
+                    {"body": obs.excerpt()},
+                )
+            )
+        results.append(self._legacy_confidentiality(state, step))
+        if not step.decision.allowed and isinstance(
+            step.op, (CreateDocument, UpdateDocument, DeleteDocument)
+        ):
+            results.append(self._legacy_integrity(state, step))
+        return results
+
+
+    def _legacy_confidentiality(self, state: ModelState, step: ExecutedStep) -> Evaluation:
         obs = step.observation
         leaked = [
             {"doc": d.ref, "owner_org": d.org, "marker": d.marker}
@@ -95,9 +202,8 @@ class Evaluator:
             summary="no data of other organizations observed in the response",
         )
 
-    # -- TI-2 / AZ-1 ------------------------------------------------------
 
-    def _integrity(self, state: ModelState, step: ExecutedStep) -> Evaluation:
+    def _legacy_integrity(self, state: ModelState, step: ExecutedStep) -> Evaluation:
         prop_id = step.decision.property_id
         assert prop_id is not None and prop_id in PROPERTIES
         probe, org = step.probe, step.probe_org
