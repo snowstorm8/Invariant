@@ -1,0 +1,43 @@
+"""Structured findings."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+from invariant.core.engine import StepRecord
+from invariant.core.scenario import Scenario
+from invariant.evaluation.violations import Outcome
+
+DISCLAIMER = (
+    "Invariant performs bounded, randomized testing. A PASS means no violation was "
+    "found within the explored scenarios; it is not a proof or security guarantee."
+)
+
+
+class Finding(BaseModel):
+    property_id: str
+    property_name: str
+    statement: str
+    outcome: Outcome
+    summary: str
+    step_index: int
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class Report(BaseModel):
+    tool: str = "invariant"
+    tool_version: str
+    target: str
+    outcome: Outcome
+    executions: int = 0
+    seed: int | None = None
+    finding: Finding | None = None
+    #: Operation sequence that triggers the finding (replayable JSON).
+    scenario: Scenario | None = None
+    #: Every executed step of the minimal failing run, with its evaluations.
+    steps: list[StepRecord] = Field(default_factory=list)
+    #: True/False if the scenario was replayed on a fresh target; None if not attempted.
+    reproduced: bool | None = None
+    note: str = DISCLAIMER
