@@ -159,12 +159,14 @@ class Evaluator:
         properties, never on the response."""
         if not isinstance(step.op, (CreateDocument, UpdateDocument, DeleteDocument)):
             return
+        # Denials are keyed by the policy's name for a rule, which survives a
+        # rename of the rule's id.
         judged_from_evidence = {
-            prop.id for prop in self.properties if prop.applies(step) and prop.requires(step)
+            prop.policy for prop in self.properties if prop.applies(step) and prop.requires(step)
         }
         unjudged = [i for i in step.decision.property_ids if i not in judged_from_evidence]
         if self.denial_coverage == "active":
-            active = {prop.id for prop in self.properties}
+            active = {prop.policy for prop in self.properties}
             unjudged = [i for i in unjudged if i in active]
         assert not unjudged, f"denied write attributed to {unjudged}, which no property evaluates"
 

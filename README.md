@@ -32,9 +32,12 @@ rule "read-returns-own-tenant" {
 }
 ```
 
-The three built-in rules (TI-1, TI-2, AZ-1) are written in the same language
-(`src/invariant/integrations/document_saas.rules`) and can be switched off individually.
-See [docs/rules.md](docs/rules.md).
+The three core rules (TI-1, TI-2, AZ-1) are written in the same language
+(`src/invariant/integrations/document_saas.rules`), and 26 default rules for web applications
+(access control, data exposure, headers and cookies, integrity) ship next to them in
+`web_defaults.rules`. In the console they are grouped by tag, searchable, and can be switched on and
+off one by one or a group at a time; the Settings tab chooses how rules without an `id` are named
+(`AA-11`, five algorithms) and renames every rule to match. See [docs/rules.md](docs/rules.md).
 
 ## What the demo shows
 

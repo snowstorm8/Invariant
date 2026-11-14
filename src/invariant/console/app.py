@@ -9,6 +9,7 @@ engine as a ``RuleSet``.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 import threading
@@ -21,17 +22,18 @@ from invariant.analysis.reproduction import replay
 from invariant.core.scenario import describe_op
 from invariant.evaluation.evaluator import evaluator_for_report
 from invariant.exploration.runner import explore
-from invariant.integrations.builtin_rules import builtin_document
+from invariant.integrations.builtin_rules import builtin_document, shipped_document
 from invariant.properties.base import Property
 from invariant.reporting.models import Report
 from invariant.reporting.reporter import render_html
+from invariant.rules import ids as rule_ids
 from invariant.rules import jsonio
 from invariant.rules.engine import RuleSet
 from invariant.rules.errors import Diagnostic, RuleError
 from invariant.rules.functions import describe_functions
 from invariant.rules.ir import SEVERITIES, Rule, RuleDocument
 from invariant.rules.parser import CLAUSES, parse_rules
-from invariant.rules.printer import format_rule
+from invariant.rules.printer import format_rule, format_rules, quote
 from invariant.rules.types import ContextSchema
 from invariant.rules.validator import validate_rule
 
@@ -151,6 +153,38 @@ def ruleset_from_request(
     return RuleSet(rules, schema)
 
 
+_STRING = r"""(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')"""
+_COMMENT = r"(?:[ \t]*(?:\#|//)[^\n]*)?"
+_RULE_HEADER = re.compile(rf"^([ \t]*rule[ \t]+{_STRING}[ \t]*\{{){_COMMENT}$", re.MULTILINE)
+_ID_LINE = re.compile(rf"^([ \t]*)id[ \t]+{_STRING}{_COMMENT}$", re.MULTILINE)
+
+
+def with_id(source: str, rules: tuple[Rule, ...], new_id: str) -> str:
+    """``source`` with the id of its first rule set to ``new_id``.
+
+    Edits the text, so comments and layout survive; if that cannot be done
+    safely (several rules, an unusual layout) the rule is printed instead.
+    """
+    wanted = tuple(dataclasses.replace(rules[0], id=new_id) if i == 0 else r
+                   for i, r in enumerate(rules))  # fmt: skip
+    if len(rules) == 1:
+        found = _ID_LINE.search(source)
+        edited: str | None = None
+        if found is not None:
+            edited = source[: found.start()] + f"{found.group(1)}id {quote(new_id)}" + source[found.end() :]
+        else:
+            head = _RULE_HEADER.search(source)
+            if head is not None:
+                edited = source[: head.end()] + f"\n    id {quote(new_id)}" + source[head.end() :]
+        if edited is not None:
+            try:
+                if parse_rules(edited).rules == wanted:
+                    return edited
+            except RuleError:
+                pass
+    return format_rules(list(wanted))
+
+
 class ConsoleError(ValueError):
     """A request the console refuses, with an explanation for the developer."""
 
@@ -167,6 +201,8 @@ def _rule_info(rule: Rule) -> dict[str, Any]:
         "description": rule.description,
         "severity": rule.severity,
         "statement": prop.statement,
+        "tags": list(rule.tags),
+        "policy": rule.policy,
     }
 
 
@@ -182,13 +218,38 @@ def _int(raw: object, name: str, *, minimum: int | None = None, optional: bool =
 
 
 class ConsoleApp:
-    def __init__(self, target: ConsoleTarget, store: RuleStore | None = None) -> None:
+    def __init__(
+        self, target: ConsoleTarget, store: RuleStore | None = None, *, library: bool = True
+    ) -> None:
         self.target = target
         self.schema = target.binding.schema
         self.store = store or RuleStore()
-        self.builtin: tuple[Rule, ...] = builtin_document().rules
+        #: Every rule that ships (core + default library), with the ids it was written with.
+        #: ``library=False`` offers only the three core rules.
+        self.shipped: tuple[Rule, ...] = (
+            shipped_document() if library else builtin_document()
+        ).rules
         #: One exploration at a time; rule edits are serialised too.
         self._lock = threading.RLock()
+
+    @property
+    def builtin(self) -> tuple[Rule, ...]:
+        """The shipped rules as they are shown and run: with the display id the
+        developer's id algorithm gave them. The shipped id stays as the rule's
+        policy key, so renaming never changes what the reference policy denies."""
+        chosen = self.store.data.builtin_ids
+        out: list[Rule] = []
+        for rule in self.shipped:
+            new = chosen.get(rule.id)
+            if new is None or new == rule.id:
+                out.append(rule)
+            else:
+                out.append(dataclasses.replace(rule, id=new, policy=rule.policy or rule.id))
+        return tuple(out)
+
+    def _builtin_pairs(self) -> list[tuple[str, Rule]]:
+        """(shipped id, effective rule) for every shipped rule."""
+        return list(zip((r.id for r in self.shipped), self.builtin, strict=True))
 
     # -- reference -----------------------------------------------------------
 
@@ -213,6 +274,7 @@ class ConsoleApp:
                 "examples": EXAMPLES,
             },
             "rules": self.list_rules(),
+            "settings": self.get_settings(),
         }
 
     # -- validation ----------------------------------------------------------
@@ -274,8 +336,18 @@ class ConsoleApp:
                         )
                     )
         rules = document.rules if document is not None else ()
+        # What rules written without an id will be called once saved.
+        assigned: dict[str, str] = {}
+        if document is not None and not problems:
+            _, with_ids = self._with_assigned_ids(source, document, key if isinstance(key, str) else None)
+            assigned = {
+                before.name: after.id
+                for before, after in zip(document.rules, with_ids.rules, strict=True)
+                if before.id != after.id
+            }
         return {
             "ok": not problems,
+            "assigned_ids": assigned,
             "diagnostics": [d.to_json() for d in problems],
             "rules": [
                 {**_rule_info(r), "source": format_rule(r), "json": jsonio.rule_to_json(r)}
@@ -302,7 +374,7 @@ class ConsoleApp:
             guess = _NAME_GUESS.search(stored.source)
             info = {
                 "id": "", "name": guess.group(1).strip() if guess else "untitled draft",
-                "description": "", "severity": "", "statement": "",
+                "description": "", "severity": "", "statement": "", "tags": [], "policy": None,
             }  # fmt: skip
             as_json = None
         return {
@@ -321,22 +393,24 @@ class ConsoleApp:
     def list_rules(self) -> list[dict[str, Any]]:
         with self._lock:
             disabled = set(self.store.data.disabled_builtin)
+            pairs = self._builtin_pairs()
             out: list[dict[str, Any]] = [
                 {
                     **_rule_info(rule),
-                    "key": BUILTIN_PREFIX + rule.id,
+                    "key": BUILTIN_PREFIX + shipped_id,
+                    "shipped_id": shipped_id,
                     "origin": "builtin",
                     "filename": "",
-                    "enabled": rule.id not in disabled,
+                    "enabled": shipped_id not in disabled,
                     "editable": False,
                     "source": format_rule(rule),
                     "json": jsonio.rule_to_json(rule),
                     "valid": True,
                     "diagnostics": [],
                 }
-                for rule in self.builtin
+                for shipped_id, rule in pairs
             ]
-            taken = {rule.id: "a built-in rule" for rule in self.builtin}
+            taken = {rule.id: "a built-in rule" for _, rule in pairs}
             for stored in self.store.data.rules:
                 entry = self._entry(stored, taken)
                 if entry["valid"]:
@@ -357,6 +431,10 @@ class ConsoleApp:
         with self._lock:
             existing = self.store.find(key) if isinstance(key, str) and key else None
             document, problems = self._check(source)
+            if document is not None and not problems:
+                source, document = self._with_assigned_ids(
+                    source, document, existing.key if existing else None
+                )
             pieces = (
                 [format_rule(r) + "\n" for r in document.rules]
                 if document is not None and not problems and len(document.rules) > 1
@@ -380,6 +458,165 @@ class ConsoleApp:
             self.store.save()
             return {"saved": saved, "rules": self.list_rules()}
 
+    def _with_assigned_ids(
+        self, source: str, document: RuleDocument, except_key: str | None
+    ) -> tuple[str, RuleDocument]:
+        """Give every rule that was written without an ``id`` the one the chosen
+        algorithm derives from its name. A rule whose id equals its name has none."""
+        missing = [r for r in document.rules if r.id == r.name]
+        if not missing:
+            return source, document
+        taken = set(self._other_ids(except_key)) | {
+            r.id for r in document.rules if r.id != r.name
+        }
+        chosen: dict[str, str] = {}
+        for rule in missing:
+            chosen[rule.name] = rule_ids.assign(self.store.data.id_algorithm, rule.name, taken)
+            taken.add(chosen[rule.name])
+        rules = tuple(
+            dataclasses.replace(r, id=chosen[r.name]) if r.id == r.name else r
+            for r in document.rules
+        )
+        if len(document.rules) == 1:
+            source = with_id(source, document.rules, chosen[document.rules[0].name])
+        else:
+            source = format_rules(list(rules))
+        return source, dataclasses.replace(document, rules=rules)
+
+    # -- settings ------------------------------------------------------------
+
+    def get_settings(self) -> dict[str, Any]:
+        return {
+            "id_algorithm": self.store.data.id_algorithm,
+            "default_id_algorithm": rule_ids.DEFAULT_ALGORITHM,
+            "id_algorithms": rule_ids.describe(),
+        }
+
+    def _id_plan(self, algorithm: str) -> list[dict[str, Any]]:
+        """What ``algorithm`` would call every rule, and which of them change."""
+        if algorithm not in rule_ids.ALGORITHMS:
+            raise ConsoleError(
+                f"unknown id algorithm '{algorithm}' (choose one of: {', '.join(rule_ids.ALGORITHMS)})"
+            )
+        items: list[tuple[str, str, str]] = []
+        origin: dict[str, str] = {}
+        for shipped_id, rule in self._builtin_pairs():
+            key = BUILTIN_PREFIX + shipped_id
+            items.append((key, rule.name, rule.id))
+            origin[key] = "builtin"
+        for stored in self.store.data.rules:
+            document, problems = self._check(stored.source)
+            if document is None or problems:
+                continue  # a draft has no id to rewrite
+            for index, rule in enumerate(document.rules):
+                key = f"{stored.key}#{index}"
+                items.append((key, rule.name, rule.id))
+                origin[key] = stored.origin
+        new = rule_ids.assign_all(algorithm, items)
+        names = {key: name for key, name, _ in items}
+        return [
+            {"key": key, "name": names[key], "origin": origin[key], "from": current, "to": new[key]}
+            for key, _, current in items
+        ]
+
+    def preview_settings(self, request: dict[str, Any]) -> dict[str, Any]:
+        """The id changes saving ``id_algorithm`` would make. Changes nothing."""
+        algorithm = request.get("id_algorithm")
+        if not isinstance(algorithm, str):
+            raise ConsoleError("id_algorithm must be a string")
+        with self._lock:
+            plan = self._id_plan(algorithm)
+            return {
+                "id_algorithm": algorithm,
+                "changes": [c for c in plan if c["from"] != c["to"]],
+                "unchanged": sum(1 for c in plan if c["from"] == c["to"]),
+            }
+
+    def save_settings(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Choose the id algorithm and rename every rule to match it, built-in
+        rules included. Drafts that do not validate are left as they are."""
+        algorithm = request.get("id_algorithm")
+        if not isinstance(algorithm, str):
+            raise ConsoleError("id_algorithm must be a string")
+        with self._lock:
+            plan = self._id_plan(algorithm)
+            new_ids = {c["key"]: c["to"] for c in plan}
+            data = self.store.data
+            for shipped in self.shipped:
+                wanted = new_ids[BUILTIN_PREFIX + shipped.id]
+                if wanted == shipped.id:
+                    data.builtin_ids.pop(shipped.id, None)
+                else:
+                    data.builtin_ids[shipped.id] = wanted
+            for stored in data.rules:
+                document, problems = self._check(stored.source)
+                if document is None or problems:
+                    continue
+                wanted_ids = [new_ids[f"{stored.key}#{i}"] for i in range(len(document.rules))]
+                if wanted_ids == [r.id for r in document.rules]:
+                    continue
+                if len(document.rules) == 1:
+                    stored.source = with_id(stored.source, document.rules, wanted_ids[0])
+                else:
+                    stored.source = format_rules(
+                        [dataclasses.replace(r, id=i) for r, i in zip(document.rules, wanted_ids, strict=True)]
+                    )
+            data.id_algorithm = algorithm
+            self.store.save()
+            return {
+                "settings": self.get_settings(),
+                "changed": [c for c in plan if c["from"] != c["to"]],
+                "rules": self.list_rules(),
+            }
+
+    def set_enabled_many(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Switch many rules on or off in one request (every key or none)."""
+        keys, enabled = request.get("keys"), request.get("enabled")
+        if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+            raise ConsoleError("expected {keys: [string], enabled: boolean}")
+        if not isinstance(enabled, bool):
+            raise ConsoleError("expected {keys: [string], enabled: boolean}")
+        with self._lock:
+            known = {r.id for r in self.shipped}
+            for key in keys:
+                if key.startswith(BUILTIN_PREFIX):
+                    if key.removeprefix(BUILTIN_PREFIX) not in known:
+                        raise ConsoleError(f"no built-in rule '{key.removeprefix(BUILTIN_PREFIX)}'")
+                else:
+                    self.store.find(key)  # raises KeyError for an unknown key
+            off = set(self.store.data.disabled_builtin)
+            for key in keys:
+                if key.startswith(BUILTIN_PREFIX):
+                    shipped_id = key.removeprefix(BUILTIN_PREFIX)
+                    off.discard(shipped_id) if enabled else off.add(shipped_id)
+                else:
+                    self.store.find(key).enabled = enabled
+            self.store.data.disabled_builtin = sorted(off)
+            self.store.save()
+            return {"rules": self.list_rules()}
+
+    def _with_import_ids(
+        self, document: RuleDocument, owned_by_name: dict[str, str]
+    ) -> RuleDocument:
+        """Ids for imported rules that came without one. A rule named like one the
+        developer already has takes that rule's id (so 'replace existing' works on
+        re-import); any other gets the id the chosen algorithm derives."""
+        taken = set(self._other_ids(None)) | {r.id for r in document.rules if r.id != r.name}
+        rules: list[Rule] = []
+        disabled = set(document.disabled)
+        for rule in document.rules:
+            if rule.id == rule.name:
+                new = owned_by_name.get(rule.name) or rule_ids.assign(
+                    self.store.data.id_algorithm, rule.name, taken
+                )
+                taken.add(new)
+                if rule.id in disabled:
+                    disabled.discard(rule.id)
+                    disabled.add(new)
+                rule = dataclasses.replace(rule, id=new)
+            rules.append(rule)
+        return RuleDocument(rules=tuple(rules), disabled=frozenset(disabled))
+
     def import_json(self, request: dict[str, Any]) -> dict[str, Any]:
         """Import a JSON rule file. Nothing is stored unless every rule is valid."""
         content = request.get("content")
@@ -391,10 +628,13 @@ class ConsoleApp:
             document, problems = self._check(content, "json")
             if document is not None and not problems:
                 owners: dict[str, StoredRule] = {}
+                owned_by_name: dict[str, str] = {}
                 for stored in self.store.data.rules:
                     parsed, bad = self._check(stored.source)
                     if parsed is not None and not bad:
                         owners.update({r.id: stored for r in parsed.rules})
+                        owned_by_name.update({r.name: r.id for r in parsed.rules})
+                document = self._with_import_ids(document, owned_by_name)
                 builtin_ids = {r.id for r in self.builtin}
                 for rule in document.rules:
                     if rule.id in builtin_ids:
@@ -443,7 +683,7 @@ class ConsoleApp:
         with self._lock:
             if key.startswith(BUILTIN_PREFIX):
                 rule_id = key.removeprefix(BUILTIN_PREFIX)
-                if rule_id not in {r.id for r in self.builtin}:
+                if rule_id not in {r.id for r in self.shipped}:
                     raise ConsoleError(f"no built-in rule '{rule_id}'")
                 off = set(self.store.data.disabled_builtin)
                 off.discard(rule_id) if enabled else off.add(rule_id)

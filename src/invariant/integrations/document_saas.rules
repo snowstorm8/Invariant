@@ -9,6 +9,7 @@
 
 rule "tenant-read-isolation" {
     id "TI-1"
+    tags "access-control", "tenancy"
     description "A principal must never receive data belonging to a resource owned by another organization."
     severity critical
 
@@ -35,6 +36,7 @@ rule "tenant-read-isolation" {
 
 rule "tenant-write-isolation" {
     id "TI-2"
+    tags "access-control", "tenancy", "integrity"
     description "A principal must never modify or delete a resource owned by another organization."
     severity critical
 
@@ -60,6 +62,7 @@ rule "tenant-write-isolation" {
 
 rule "role-write-permission" {
     id "AZ-1"
+    tags "access-control", "roles", "integrity"
     description "A principal must not perform a write operation that its role does not permit."
     severity high
 

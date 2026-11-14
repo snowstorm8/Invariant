@@ -33,6 +33,14 @@ class Property:
     name: str
     statement: str  # what the software must never allow
     severity: str | None = None
+    #: The reference policy's key for this property. It differs from ``id`` only
+    #: when the rule was renamed; denials in a ``Decision`` use this key.
+    policy_key: str | None = None
+    tags: tuple[str, ...] = ()
+
+    @property
+    def policy(self) -> str:
+        return self.policy_key if self.policy_key is not None else self.id
 
     @classmethod
     def from_rule(cls, rule: Rule) -> Property:
@@ -40,7 +48,14 @@ class Property:
         statement = rule.description or "; ".join(
             f"{a.kind} {format_expr(a.condition)}" for a in rule.assertions
         )
-        return cls(id=rule.id, name=rule.name, statement=statement, severity=rule.severity)
+        return cls(
+            id=rule.id,
+            name=rule.name,
+            statement=statement,
+            severity=rule.severity,
+            policy_key=rule.policy,
+            tags=rule.tags,
+        )
 
 
 @dataclass(frozen=True)
@@ -91,6 +106,10 @@ class SecurityProperty(ABC):
     @property
     def id(self) -> str:
         return self.info.id
+
+    @property
+    def policy(self) -> str:
+        return self.info.policy
 
     @abstractmethod
     def applies(self, step: Step) -> bool:

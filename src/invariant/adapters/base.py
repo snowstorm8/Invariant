@@ -51,6 +51,14 @@ class Observation(BaseModel):
     status: int | None = None
     body: str = ""
     error: str | None = None
+    #: Response headers, names lower-cased. Repeated headers are joined with
+    #: ", "; ``Set-Cookie`` is kept apart in ``set_cookies``.
+    headers: dict[str, str] = Field(default_factory=dict)
+    #: Every ``Set-Cookie`` header, verbatim.
+    set_cookies: tuple[str, ...] = ()
+    #: The request this answers, when the adapter knows it.
+    method: str | None = None
+    path: str | None = None
 
     @property
     def responded(self) -> bool:

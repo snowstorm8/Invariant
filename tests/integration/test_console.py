@@ -29,7 +29,9 @@ RULE_FILE = {
 
 @pytest.fixture
 def app(tmp_path):
-    return ConsoleApp(console_target(), RuleStore(tmp_path / "store" / "rules.json"))
+    # Only the three core rules: these tests are about managing rules, not the
+    # library (see test_console_rule_library.py).
+    return ConsoleApp(console_target(), RuleStore(tmp_path / "store" / "rules.json"), library=False)
 
 
 def by_name(rules, name):
@@ -43,7 +45,8 @@ def test_bootstrap_describes_target_language_and_builtin_rules(app):
     boot = app.bootstrap()
     assert boot["target"]["name"] == "vulnerable_saas"
     assert {o["id"] for o in boot["target"]["options"]} == {
-        "stale-cache-read", "update-missing-tenant-check", "viewer-can-update"}  # fmt: skip
+        "stale-cache-read", "update-missing-tenant-check", "viewer-can-update",
+        "missing-security-headers", "verbose-errors"}  # fmt: skip
     schema = boot["language"]["schema"]
     assert schema["name"] == "document-saas"
     assert [r["name"] for r in schema["roots"]] == [
@@ -80,9 +83,12 @@ def test_validate_reports_syntax_and_semantic_problems_with_positions(app):
 def test_validate_flags_an_id_that_is_already_taken(app):
     taken = app.validate({"source": 'rule "mine" { id "TI-1" always true }'})
     assert not taken["ok"] and "already used by a built-in rule" in taken["diagnostics"][0]["message"]
-    key = app.save_rule({"source": CUSTOM})["saved"][0]
-    assert not app.validate({"source": CUSTOM})["ok"]  # a second rule with the same id
-    assert app.validate({"source": CUSTOM, "key": key})["ok"]  # editing the rule itself
+    pinned = CUSTOM.replace('rule "read-returns-own-tenant" {', 'rule "read-returns-own-tenant" {\n    id "RT-1"')
+    key = app.save_rule({"source": pinned})["saved"][0]
+    assert not app.validate({"source": pinned})["ok"]  # a second rule with the same id
+    assert app.validate({"source": pinned, "key": key})["ok"]  # editing the rule itself
+    # A rule written without an id is never in conflict: it is given a free one.
+    assert app.validate({"source": CUSTOM})["ok"]
 
 
 @pytest.mark.parametrize("request_", [{}, {"source": 5}, {"source": "x", "format": "yaml"}])
@@ -100,9 +106,11 @@ def test_create_edit_disable_and_delete_a_rule(app):
     rule = by_name(out["rules"], "read-returns-own-tenant")
     assert (rule["key"], rule["origin"], rule["enabled"], rule["valid"], rule["editable"]) == (
         key, "authored", True, True, True)  # fmt: skip
-    assert rule["severity"] == "critical" and rule["source"] == CUSTOM
+    assert rule["severity"] == "critical" and rule["id"] == "RR-20"
+    # Saving gave the rule the id derived from its name, and changed nothing else.
+    assert rule["source"].replace('    id "RR-20"\n', "") == CUSTOM
 
-    edited = app.save_rule({"key": key, "source": CUSTOM.replace("critical", "low")})
+    edited = app.save_rule({"key": key, "source": rule["source"].replace("critical", "low")})
     assert edited["saved"] == [key] and len(edited["rules"]) == 4
     assert by_name(edited["rules"], "read-returns-own-tenant")["severity"] == "low"
 
@@ -142,12 +150,12 @@ def test_an_invalid_rule_is_kept_as_a_draft_but_cannot_run(app):
 
 def test_rules_and_switches_survive_a_restart(tmp_path):
     path = tmp_path / "rules.json"
-    first = ConsoleApp(console_target(), RuleStore(path))
+    first = ConsoleApp(console_target(), RuleStore(path), library=False)
     key = first.save_rule({"source": CUSTOM})["saved"][0]
     first.set_enabled({"key": "builtin:AZ-1", "enabled": False})
-    second = ConsoleApp(console_target(), RuleStore(path))
+    second = ConsoleApp(console_target(), RuleStore(path), library=False)
     assert by_name(second.list_rules(), "read-returns-own-tenant")["key"] == key
-    assert second.active_ruleset().ids() == ["TI-1", "TI-2", "read-returns-own-tenant"]
+    assert second.active_ruleset().ids() == ["TI-1", "TI-2", "RR-20"]
     assert second.save_rule({"source": EXAMPLES[1]["source"]})["saved"] != [key]  # keys are not reused
     path.write_text("{broken")
     with pytest.raises(ValueError, match="cannot read rule store"):
@@ -163,9 +171,18 @@ def test_upload_json_adds_rules_shown_in_the_rule_language(app):
     rule = by_name(out["rules"], "no-foreign-org-id")
     assert (rule["origin"], rule["filename"], rule["enabled"], rule["valid"]) == (
         "imported", "team.json", True, True)  # fmt: skip
-    assert rule["source"].startswith('rule "no-foreign-org-id" {\n    severity high\n')
+    # The file gave no id, so the console derived one from the name.
+    assert rule["id"] == "NF-14"
+    assert rule["source"].startswith('rule "no-foreign-org-id" {\n    id "NF-14"\n    severity high\n')
     assert by_name(out["rules"], "answers")["enabled"] is False  # "enabled": false is honoured
-    assert app.active_ruleset().ids() == ["TI-1", "TI-2", "AZ-1", "no-foreign-org-id"]
+    assert by_name(out["rules"], "answers")["id"] == "AN-07"
+    assert app.active_ruleset().ids() == ["TI-1", "TI-2", "AZ-1", "NF-14"]
+    # Importing the same file again with 'replace' updates those rules instead of adding more.
+    again = app.import_json({"filename": "team.json", "content": json.dumps(RULE_FILE), "replace": True})
+    assert again["imported"] == out["imported"] and len(again["rules"]) == len(out["rules"])
+    with pytest.raises(ConsoleError, match="was not imported") as caught:
+        app.import_json({"filename": "team.json", "content": json.dumps(RULE_FILE)})
+    assert all("already exists" in d["message"] for d in caught.value.diagnostics)
 
 
 @pytest.mark.parametrize(
@@ -222,8 +239,9 @@ def test_run_with_only_a_user_rule_then_replay_on_both_builds(app):
         app.set_enabled({"key": f"builtin:{rule_id}", "enabled": False})
     out = app.scan({"options": ["stale-cache-read"], "seed": 1})
     report = Report.model_validate(out["report"])
-    assert out["rules_used"] == [{"id": "read-returns-own-tenant", "name": "read-returns-own-tenant", "severity": "critical"}]
-    assert report.outcome == "VIOLATION" and report.finding.property_id == "read-returns-own-tenant"
+    assert out["rules_used"] == [{"id": "RR-20", "name": "read-returns-own-tenant", "severity": "critical"}]
+    assert report.outcome == "VIOLATION" and report.finding.property_id == "RR-20"
+    assert report.finding.property_name == "read-returns-own-tenant"
     assert report.finding.severity == "critical" and report.reproduced is True
     assert report.target == "vulnerable_saas[stale-cache-read]"
     assert len(out["steps_text"]) == len(report.steps) and out["steps_text"][-1].endswith("reads doc0")
@@ -232,7 +250,7 @@ def test_run_with_only_a_user_rule_then_replay_on_both_builds(app):
     # The report carries its rules: replay judges with them even after the rule is gone.
     app.delete_rule({"key": by_name(app.list_rules(), "read-returns-own-tenant")["key"]})
     hit = app.replay({"options": ["stale-cache-read"], "report": out["report"]})
-    assert (hit["outcome"], hit["valid"], hit["violated"]) == ("VIOLATION", True, ["read-returns-own-tenant"])
+    assert (hit["outcome"], hit["valid"], hit["violated"]) == ("VIOLATION", True, ["RR-20"])
     fixed = app.replay({"options": [], "report": out["report"]})
     assert (fixed["outcome"], fixed["message"], fixed["target"]) == ("PASS", "", "vulnerable_saas[fixed]")
     assert "invariant-report" in app.report_html({"report": out["report"]})["html"]
@@ -325,7 +343,8 @@ def test_the_page_and_the_whole_workflow_over_http(server):
 
     status, scan = call(server, "POST", "/api/scan", {"options": ["stale-cache-read"], "seed": 1})
     assert status == 200 and scan["report"]["outcome"] == "VIOLATION"
-    assert scan["report"]["finding"]["property_id"] in ("read-returns-own-tenant", "no-foreign-org-id")
+    used = {r["id"]: r["name"] for r in scan["rules_used"]}
+    assert used[scan["report"]["finding"]["property_id"]] in ("read-returns-own-tenant", "no-foreign-org-id")
     status, fixed = call(server, "POST", "/api/replay", {"options": [], "report": scan["report"]})
     assert status == 200 and fixed["outcome"] == "PASS"
     status, html = call(server, "POST", "/api/report-html", {"report": scan["report"]})

@@ -104,3 +104,33 @@ def test_cli_reports_invalid_rule_files_as_usage_errors(tmp_path):
 def test_cli_console_rejects_a_target_that_is_not_a_console_target():
     out = runner.invoke(app, ["console", FIXED, "--app-dir", EXAMPLES_DIR, "--no-open"])
     assert out.exit_code == 2 and "ConsoleTarget" in out.output
+
+
+def test_cli_library_flag_adds_the_default_rules_and_passes_on_the_fixed_app():
+    result = runner.invoke(
+        app, ["explore", FIXED, "--app-dir", EXAMPLES_DIR, "--seed", "1",
+              "--max-examples", "25", "--library"],
+    )  # fmt: skip
+    assert result.exit_code == 0 and "Result: PASS" in result.output
+
+
+def test_cli_library_flag_reports_a_library_rule_on_the_vulnerable_app(tmp_path):
+    saved = tmp_path / "r.report.json"
+    result = runner.invoke(
+        app, ["explore", VULN, "--app-dir", EXAMPLES_DIR, "--seed", "1", "--library",
+              "--no-builtin", "--report", str(saved)],
+    )  # fmt: skip
+    assert result.exit_code == 1
+    report = json.loads(saved.read_text())
+    ids = [f["property_id"] for f in report["findings"]]
+    assert "AC-1" in ids and "TI-1" not in ids and len(report["rules"]) == 26
+    replayed = runner.invoke(app, ["replay", str(saved), VULN, "--app-dir", EXAMPLES_DIR])
+    assert replayed.exit_code == 1
+
+
+def test_bridge_catalog_lists_the_library_properties_too():
+    code, catalog = bridge({"action": "catalog"})
+    assert code == 0
+    ids = {p["id"] for p in catalog["properties"]}
+    assert {"TI-1", "AC-1", "DX-3", "TH-1", "IR-5"} <= ids and len(ids) == 29
+    assert {d["property"] for d in catalog["defects"]} <= ids

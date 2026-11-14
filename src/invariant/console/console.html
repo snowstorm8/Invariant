@@ -153,6 +153,22 @@
   ol.steps li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; padding: 6px 10px; border-radius: 8px; align-items: center; }
   ol.steps li.hit { background: var(--danger-bg); border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); }
   ol.steps .i { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  .filters { display: grid; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .filters input[type="search"], .filters select { background: var(--bg); border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 10px; color: var(--fg); font: inherit; font-size: 13px; width: 100%; min-width: 0; }
+  .filters .row { gap: 6px; }
+  .tagchip { font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-strong); background: transparent; color: var(--muted); cursor: pointer; }
+  .tagchip[aria-pressed="true"] { color: var(--bg); background: var(--fg); border-color: var(--fg); }
+  .gh { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 12px; margin-top: 4px; border-top: 1px solid var(--border); }
+  .gh .gt { background: none; border: 0; padding: 0; text-align: left; font-weight: 600; color: var(--fg); cursor: pointer; font: inherit; font-weight: 600; }
+  .gh .cnt { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .gh .chev { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0 2px; font-size: 12px; width: 16px; }
+  .gh input[type="checkbox"] { width: 16px; height: 16px; margin: 0; cursor: pointer; }
+  .algo { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+  .algo:has(input:checked) { border-color: var(--ok); background: var(--surface-2); }
+  .algo .t { font-weight: 600; } .algo .d { color: var(--muted); font-size: 12px; } .algo .x { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  table.changes { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.changes th, table.changes td { text-align: left; padding: 4px 8px; border-top: 1px solid var(--border); font-family: var(--mono); }
+  table.changes th { color: var(--dim); font-weight: 500; }
   .findings { display: grid; gap: 6px; }
   .finding { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; text-align: left; font: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-2); color: inherit; cursor: pointer; }
   .finding.on { border-color: var(--muted); }
@@ -174,6 +190,7 @@
     <div class="seg" role="tablist" aria-label="Console sections">
       <button role="tab" id="tab-rules" aria-selected="true" aria-controls="view-rules">Rules</button>
       <button role="tab" id="tab-run" aria-selected="false" aria-controls="view-run">Run exploration</button>
+      <button role="tab" id="tab-settings" aria-selected="false" aria-controls="view-settings">Settings</button>
     </div>
   </header>
 
@@ -191,11 +208,22 @@
             <input type="file" id="upload-input" accept=".json,application/json" hidden>
           </div>
         </div>
-        <div class="group-label">Your rules</div>
+        <div class="filters">
+          <input type="search" id="rule-search" placeholder="Search name, id, tag or description" aria-label="Search rules" autocomplete="off">
+          <div class="row">
+            <select id="rule-status" aria-label="Show rules that are" style="width:auto">
+              <option value="all">All rules</option><option value="on">Enabled</option><option value="off">Disabled</option>
+            </select>
+            <button class="btn ghost sm" id="bulk-on" title="Enable every rule that matches the filters">Enable shown</button>
+            <button class="btn ghost sm" id="bulk-off" title="Disable every rule that matches the filters">Disable shown</button>
+          </div>
+          <details id="tag-filter"><summary class="muted" style="font-size:12px;cursor:pointer">Filter by tag <span id="tag-active"></span></summary><div class="row" id="tag-chips" style="margin-top:8px"></div></details>
+          <div class="muted" id="rule-count" style="font-size:12px" role="status" aria-live="polite"></div>
+        </div>
+        <div class="group-label" id="custom-label">Your rules</div>
         <ul class="rules" id="custom-rules"></ul>
         <div class="empty" id="custom-empty">None yet. Write one with <b>New rule</b> or upload a JSON rule file.</div>
-        <div class="group-label">Built-in</div>
-        <ul class="rules" id="builtin-rules"></ul>
+        <div id="builtin-groups"></div>
         <div class="card-b" style="border-top:1px solid var(--border)">
           <label class="row" style="font-size:12px;color:var(--muted)"><input type="checkbox" id="import-replace"> Replace rules with the same id on upload</label>
           <div class="row" style="margin-top:10px"><button class="btn ghost sm" id="export-btn">Export your rules as JSON</button></div>
@@ -260,6 +288,24 @@
           <details class="ref"><summary>Syntax</summary><div class="ref-b"><pre class="code" id="ref-syntax"></pre></div></details>
           <details class="ref"><summary>Examples</summary><div class="ref-b" id="ref-examples"></div></details>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= SETTINGS ============================ -->
+  <section id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+    <div class="layout">
+      <div class="card">
+        <div class="card-h"><h2>Rule ids</h2></div>
+        <div class="card-b form">
+          <p class="muted" style="margin:0">A rule written without an <span class="mono">id</span> is given one derived from its name, in the form <span class="mono">AA-11</span>. Pick how. Saving also renames every existing rule, built-in ones included, whose id does not match. Rule definitions stay as they are apart from the id line; the reference policy still recognises built-in rules by their original id.</p>
+          <div id="algos" role="radiogroup" aria-label="Id algorithm" style="display:grid;gap:8px"></div>
+          <div class="row"><button class="btn sm" id="settings-save">Save and update all rules</button><span class="muted" id="settings-status" role="status" aria-live="polite"></span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Changes this would make</h2><span class="muted" id="changes-count" style="font-size:12px"></span></div>
+        <div class="card-b" id="changes"></div>
       </div>
     </div>
   </section>
@@ -365,36 +411,110 @@ function describeWhere(d) {
 
 // ------------------------------------------------------------------- tabs
 function showTab(name) {
-  for (const tab of ["rules", "run"]) {
+  for (const tab of ["rules", "run", "settings"]) {
     $(`#tab-${tab}`).setAttribute("aria-selected", String(tab === name));
     $(`#view-${tab}`).hidden = tab !== name;
   }
   if (name === "run") renderActiveRules();
+  if (name === "settings") renderSettings();
 }
 $("#tab-rules").addEventListener("click", () => showTab("rules"));
 $("#tab-run").addEventListener("click", () => showTab("run"));
+$("#tab-settings").addEventListener("click", () => showTab("settings"));
 
 // -------------------------------------------------------------- rule list
 function current() { return state.rules.find((r) => r.key === state.key) || null; }
 function dirty() { return editable() && $("#source").value !== state.saved; }
 function editable() { const r = current(); return !r || r.editable; }
 
-function renderRuleList() {
-  const row = (rule) => h("li", { class: "rule", "aria-current": String(rule.key === state.key) },
+const GROUP_TITLES = {
+  "access-control": "Access control", "data-exposure": "Data exposure",
+  "headers": "Headers and cookies", "integrity": "Integrity and robustness",
+};
+const filter = { text: "", status: "all", tag: "" };
+const collapsed = new Set();
+
+function groupOf(rule) { return rule.tags && rule.tags.length ? rule.tags[0] : ""; }
+function groupTitle(tag) { return GROUP_TITLES[tag] || (tag ? tag.charAt(0).toUpperCase() + tag.slice(1).replace(/[-_]/g, " ") : "Other"); }
+function matches(rule) {
+  if (filter.status === "on" && !rule.enabled) return false;
+  if (filter.status === "off" && rule.enabled) return false;
+  if (filter.tag && !(rule.tags || []).includes(filter.tag)) return false;
+  const q = filter.text.trim().toLowerCase();
+  if (!q) return true;
+  return [rule.name, rule.id, rule.description, ...(rule.tags || [])].some((v) => String(v || "").toLowerCase().includes(q));
+}
+
+function ruleRow(rule) {
+  return h("li", { class: "rule", "aria-current": String(rule.key === state.key) },
     h("label", { class: "switch", title: rule.enabled ? "Enabled: checked during exploration" : "Disabled" },
       h("input", { type: "checkbox", checked: rule.enabled, "aria-label": `Enable rule ${rule.name}`, onchange: (e) => toggleRule(rule, e.target.checked) }), h("span", {})),
-    h("button", { class: "open", onclick: () => openRule(rule.key) },
+    h("button", { class: "open", onclick: () => openRule(rule.key), title: rule.description || "" },
       h("span", { class: "nm" }, rule.name),
       h("span", { class: "meta" },
         rule.id && rule.id !== rule.name ? h("span", {}, rule.id) : null,
         rule.severity ? h("span", { class: "sev", dataset: { s: rule.severity } }, rule.severity) : null,
         rule.origin === "imported" ? h("span", { class: "tag", title: rule.filename }, "imported") : null,
         rule.valid ? null : h("span", { class: "tag bad" }, "needs fixing"))));
-  const custom = state.rules.filter((r) => r.origin !== "builtin");
-  $("#custom-rules").replaceChildren(...custom.map(row));
-  $("#custom-empty").hidden = custom.length > 0;
-  $("#builtin-rules").replaceChildren(...state.rules.filter((r) => r.origin === "builtin").map(row));
 }
+
+function renderRuleList() {
+  const shown = state.rules.filter(matches);
+  const custom = shown.filter((r) => r.origin !== "builtin");
+  const owned = state.rules.filter((r) => r.origin !== "builtin");
+  $("#custom-rules").replaceChildren(...custom.map(ruleRow));
+  $("#custom-empty").hidden = owned.length > 0;
+  $("#custom-label").hidden = owned.length === 0;
+  $("#custom-rules").hidden = owned.length === 0;
+
+  const groups = new Map();
+  for (const rule of state.rules.filter((r) => r.origin === "builtin")) {
+    const g = groupOf(rule);
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(rule);
+  }
+  const blocks = [];
+  for (const [tag, rules] of groups) {
+    const visible = rules.filter(matches);
+    if (!visible.length) continue;
+    const on = visible.filter((r) => r.enabled).length;
+    const open = !collapsed.has(tag);
+    const box = h("input", { type: "checkbox", "aria-label": `Enable or disable every shown rule in ${groupTitle(tag)}`, checked: on === visible.length,
+      onchange: (e) => bulk(visible.map((r) => r.key), e.target.checked) });
+    box.indeterminate = on > 0 && on < visible.length;
+    blocks.push(h("div", { class: "gh" },
+      h("button", { class: "chev", "aria-expanded": String(open), "aria-label": `${open ? "Collapse" : "Expand"} ${groupTitle(tag)}`, onclick: () => { open ? collapsed.add(tag) : collapsed.delete(tag); renderRuleList(); } }, open ? "▾" : "▸"),
+      box,
+      h("button", { class: "gt", onclick: () => { open ? collapsed.add(tag) : collapsed.delete(tag); renderRuleList(); } }, groupTitle(tag)),
+      h("span", { class: "cnt" }, `${on}/${visible.length} on`)));
+    if (open) blocks.push(h("ul", { class: "rules" }, visible.map(ruleRow)));
+  }
+  $("#builtin-groups").replaceChildren(...blocks);
+  const enabled = state.rules.filter((r) => r.enabled).length;
+  $("#rule-count").textContent = shown.length === state.rules.length
+    ? `${state.rules.length} rules, ${enabled} enabled`
+    : `${shown.length} of ${state.rules.length} rules shown, ${enabled} enabled`;
+  renderTagChips();
+}
+
+function renderTagChips() {
+  const counts = new Map();
+  for (const r of state.rules) for (const t of r.tags || []) counts.set(t, (counts.get(t) || 0) + 1);
+  $("#tag-chips").replaceChildren(...[...counts].sort((a, b) => a[0].localeCompare(b[0])).map(([tag, n]) =>
+    h("button", { class: "tagchip", "aria-pressed": String(filter.tag === tag), onclick: () => { filter.tag = filter.tag === tag ? "" : tag; renderRuleList(); } }, `${tag} ${n}`)));
+  $("#tag-active").textContent = filter.tag ? `· ${filter.tag}` : "";
+}
+
+async function bulk(keys, enabled) {
+  if (!keys.length) { banner("", "No rule matches the current filters."); return; }
+  try { state.rules = (await api("/api/rules/enabled-many", { keys, enabled })).rules; }
+  catch (err) { banner("bad", err.message, err.diagnostics); }
+  renderRuleList(); renderActiveRules();
+}
+$("#bulk-on").addEventListener("click", () => bulk(state.rules.filter(matches).map((r) => r.key), true));
+$("#bulk-off").addEventListener("click", () => bulk(state.rules.filter(matches).map((r) => r.key), false));
+$("#rule-search").addEventListener("input", (e) => { filter.text = e.target.value; renderRuleList(); });
+$("#rule-status").addEventListener("change", (e) => { filter.status = e.target.value; renderRuleList(); });
 
 async function toggleRule(rule, enabled) {
   try { state.rules = (await api("/api/rules/enabled", { key: rule.key, enabled })).rules; }
@@ -631,6 +751,9 @@ $("#toolbar").addEventListener("click", (e) => {
 });
 
 const SNIPPETS = {
+  id: 'id "AB-12"',
+  tags: 'tags "access-control"',
+  policy: 'policy ""',
   description: 'description ""',
   severity: "severity high",
   when: 'when operation.type == ""',
@@ -674,7 +797,8 @@ const KEYWORDS = [
   ["true", "boolean"], ["false", "boolean"], ["null", "no value"],
 ];
 const CLAUSE_HELP = {
-  rule: 'rule "name" { … }', id: "id used in reports", description: "what must never happen", severity: "critical | high | medium | low | info",
+  rule: 'rule "name" { … }', id: "id used in reports (assigned from the name if omitted)", tags: "labels for grouping and filtering rules",
+  policy: "the reference policy's key for this rule", description: "what must never happen", severity: "critical | high | medium | low | info",
   when: "which operations the rule covers", let: "a named value", observe: "application state after the operation",
   always: "must hold", assert: "alias of always", never: "must not hold", message: "text of a finding", pass_message: "text of a pass", evidence: "evidence attached to a violation",
 };
@@ -965,7 +1089,9 @@ function renderValidation() {
   const status = $("#status-text");
   if (check.ok) {
     const names = check.rules.map((r) => `"${r.name}"`).join(", ");
-    status.replaceChildren(h("span", { class: "tag good" }, "valid"), ` ${check.rules.length === 1 ? "Rule" : check.rules.length + " rules"} ${names} can be run.`);
+    const assigned = Object.entries(check.assigned_ids || {});
+    status.replaceChildren(h("span", { class: "tag good" }, "valid"), ` ${check.rules.length === 1 ? "Rule" : check.rules.length + " rules"} ${names} can be run.`,
+      ...(assigned.length ? [` No id given: saving assigns ${assigned.map(([n, id]) => `${id} to "${n}"`).join(", ")}.`] : []));
   } else {
     const n = check.diagnostics.length;
     status.replaceChildren(h("span", { class: "tag bad" }, `${n} problem${n === 1 ? "" : "s"}`), " Fix these before the rule can run.");
@@ -1103,7 +1229,8 @@ function renderReference() {
   $("#ref-functions").replaceChildren(...lang.functions.map((f) => h("div", { class: "field" }, h("span", { class: "n" }, f.signature), h("span", {}), h("span", { class: "d" }, f.doc))));
   $("#ref-syntax").textContent = [
     'rule "name" {',
-    '    id "SHORT-ID"                 # optional; defaults to the name',
+    '    id "AB-12"                    # optional; assigned from the name by the Settings algorithm',
+    '    tags "access-control", "tenancy"   # optional; group and filter rules in the console',
     '    description "what must never happen"',
     `    severity ${lang.severities.join(" | ")}`,
     '    when <condition>              # which operations the rule covers (no response fields)',
@@ -1250,6 +1377,48 @@ async function openViewer() {
 }
 
 window.addEventListener("beforeunload", (e) => { if (dirty()) { e.preventDefault(); e.returnValue = ""; } });
+
+// --------------------------------------------------------------- settings
+const settingsView = { chosen: null, preview: null };
+
+function renderSettings() {
+  const settings = state.boot.settings;
+  if (settingsView.chosen === null) settingsView.chosen = settings.id_algorithm;
+  $("#algos").replaceChildren(...settings.id_algorithms.map((a) => h("label", { class: "algo" },
+    h("input", { type: "radio", name: "algo", value: a.id, checked: a.id === settingsView.chosen, onchange: () => { settingsView.chosen = a.id; previewSettings(); } }),
+    h("span", {}, h("div", { class: "t" }, a.label, a.id === settings.id_algorithm ? h("span", { class: "tag good", style: "margin-left:8px" }, "current") : null),
+      h("div", { class: "d" }, a.description), h("div", { class: "x" }, a.example)))));
+  previewSettings();
+}
+
+async function previewSettings() {
+  const target = settingsView.chosen;
+  try {
+    const out = await api("/api/settings/preview", { id_algorithm: target });
+    if (target !== settingsView.chosen) return;
+    settingsView.preview = out;
+    const n = out.changes.length;
+    $("#changes-count").textContent = n ? `${n} rule${n === 1 ? "" : "s"} would be renamed, ${out.unchanged} already match` : "";
+    $("#settings-save").disabled = target === state.boot.settings.id_algorithm && n === 0;
+    $("#changes").replaceChildren(n ? h("table", { class: "changes" },
+      h("tr", {}, h("th", {}, "Rule"), h("th", {}, "Now"), h("th", {}, "After")),
+      ...out.changes.map((c) => h("tr", {}, h("td", {}, c.name, c.origin === "builtin" ? h("span", { class: "tag", style: "margin-left:6px" }, "built-in") : null), h("td", {}, c.from), h("td", {}, c.to)))) :
+      h("div", { class: "muted" }, "Every rule already has the id this algorithm gives it."));
+  } catch (err) { banner("bad", err.message, err.diagnostics); }
+}
+
+$("#settings-save").addEventListener("click", async () => {
+  const n = settingsView.preview ? settingsView.preview.changes.length : 0;
+  if (!window.confirm(`Use this algorithm and rename ${n} rule${n === 1 ? "" : "s"}, built-in rules included? Reports saved earlier keep the ids they were made with.`)) return;
+  try {
+    const out = await api("/api/settings", { id_algorithm: settingsView.chosen });
+    state.boot.settings = out.settings; state.rules = out.rules;
+    const open = current();
+    if (open && !dirty()) loadEditor(open.key, open.source, open.source); else { renderEditor(); renderRuleList(); }
+    renderActiveRules(); renderSettings();
+    $("#settings-status").textContent = `Saved. ${out.changed.length} rule${out.changed.length === 1 ? "" : "s"} renamed.`;
+  } catch (err) { banner("bad", err.message, err.diagnostics); }
+});
 
 // ------------------------------------------------------------------ start
 (async function start() {

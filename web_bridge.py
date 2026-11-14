@@ -30,7 +30,7 @@ from invariant.console.app import ConsoleApp, ruleset_from_request  # noqa: E402
 from invariant.evaluation.evaluator import evaluator_for_report  # noqa: E402
 from invariant.integrations.document_saas import SCHEMA  # noqa: E402
 from invariant.exploration.runner import explore  # noqa: E402
-from invariant.properties.registry import PROPERTIES  # noqa: E402
+from invariant.properties.registry import CATALOG  # noqa: E402
 from invariant.reporting.models import Report  # noqa: E402
 from invariant.reporting.reporter import render_html  # noqa: E402
 from vulnerable_saas.app.models import KNOWN_DEFECTS  # noqa: E402
@@ -75,7 +75,7 @@ def main() -> None:
             "defects": [{"id": k, **v} for k, v in DEFECTS.items()],
             "properties": [
                 {"id": p.id, "name": p.name, "statement": p.statement}
-                for p in PROPERTIES.values()
+                for p in CATALOG.values()
             ],
         }
     elif action == "scan":

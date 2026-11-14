@@ -187,7 +187,18 @@ class Rule:
     message: Template | None = None
     pass_message: Template | None = None
     evidence: tuple[tuple[str, Expr], ...] | None = None
+    #: Labels for grouping and bulk switching in tools (``tags "access", "tenancy"``).
+    #: They never affect a verdict.
+    tags: tuple[str, ...] = ()
+    #: The reference policy's key for this rule, when it differs from ``id``: the
+    #: integration's policy names a denial by this key (``policy.denials[...]``),
+    #: so it stays put when ``id`` is renamed. ``None`` means "the id".
+    policy: str | None = None
     loc: Loc | None = _loc()
+
+    @property
+    def policy_key(self) -> str:
+        return self.policy if self.policy is not None else self.id
 
     @property
     def lets(self) -> tuple[Let, ...]:

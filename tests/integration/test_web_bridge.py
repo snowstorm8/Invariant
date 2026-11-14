@@ -19,7 +19,7 @@ from invariant.core.scenario import CreateDocument, CreateOrg, Scenario
 from invariant.evaluation.violations import Outcome
 from invariant.exploration.runner import ExplorationResult
 from invariant.analysis.reproduction import ReplayResult
-from invariant.properties.registry import PROPERTIES
+from invariant.properties.registry import CATALOG
 from invariant.reporting.models import Finding, Report
 from vulnerable_saas.app.models import KNOWN_DEFECTS
 
@@ -126,9 +126,9 @@ def test_catalog_lists_every_known_defect_once():
 
 def test_catalog_properties_match_registry():
     props = ok({"action": "catalog"})["properties"]
-    assert {p["id"] for p in props} == set(PROPERTIES)
+    assert {p["id"] for p in props} == set(CATALOG)
     for p in props:
-        registered = PROPERTIES[p["id"]]
+        registered = CATALOG[p["id"]]
         assert (p["name"], p["statement"]) == (registered.name, registered.statement)
 
 
