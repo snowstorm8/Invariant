@@ -14,14 +14,20 @@
     },
     {
       "kind": "create_document",
-      "ref": "doc1",
+      "ref": "doc0",
       "actor": "user0",
-      "content": "yxcy9ba"
+      "content": ""
+    },
+    {
+      "kind": "update_document",
+      "actor": "user0",
+      "doc": "doc0",
+      "content": "9cz0 bzz"
     },
     {
       "kind": "delete_document",
       "actor": "user0",
-      "doc": "doc1"
+      "doc": "doc0"
     }
   ]
 }

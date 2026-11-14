@@ -73,7 +73,6 @@ class DocumentService:
             content=content,
             created_by=member.id,
             tick=self.p.clock,
-            owner_id=member.id,
         )
         doc.revisions.append(Revision(1, content, member.id))
         self.p.documents[doc.id] = doc

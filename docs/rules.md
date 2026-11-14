@@ -4,6 +4,9 @@ A rule states what the application must always or never do. Rules are data: they
 the console (or uploaded as JSON), validated, and handed to the exploration engine at run time.
 No Python is written or executed for a rule.
 
+This page is the reference. To learn the language by writing rules, start with the
+[tutorial](tutorial-rules.md).
+
 ```
 rule "read-returns-own-tenant" {
     description "A successful read must return a document of the reader's organization."
@@ -111,8 +114,10 @@ The console's *JSON* view shows any valid rule in this format.
 
 ## Where rules run
 
-- **Console** (`invariant console`): create, edit, validate, upload, enable/disable, run, replay.
-  Rules are kept in `.invariant/rules.json`.
+- **Console** (`invariant console`): create, edit (with autocomplete, snippets and an insert-clause
+  menu), validate, upload and export JSON, enable or disable singly or by group, run, replay. Rules
+  you create are kept in `.invariant/rules.json` (not committed); the shipped rules are always
+  offered next to them.
 - **CLI**: `invariant explore TARGET --rules my.rules --rules team.json [--no-builtin]`.
 - **Web bridge**: `{"action": "scan", "rules": [...], "builtin_rules": [...]}`.
 - **Python**: `explore(factory, rules=RuleSet.from_text(source, SCHEMA))`.
@@ -142,8 +147,8 @@ keep the ids they were made with. The code is `rules/ids.py`.
 
 ## The default rule library
 
-`integrations/web_defaults.rules` ships 26 rules for web applications next to the three core ones,
-all enabled in the console and grouped by their first tag:
+`integrations/web_defaults.rules` ships 26 rules for web applications next to the three core ones
+(29 in all), enabled in the console and grouped by their first tag:
 
 | Group | Ids | What they check |
 |---|---|---|
@@ -152,7 +157,8 @@ all enabled in the console and grouped by their first tag:
 | `headers` | TH-1 to TH-11 | nosniff, no-store, framing, referrer policy, CSP, no technology banner, no wildcard CORS with credentials, cookies are HttpOnly / Secure / SameSite, JSON is served as JSON |
 | `integrity` | IR-1 to IR-5 | no server errors, refused writes change nothing, update bumps the version by one, reads and listings match the model |
 
-Each must hold on the fixed demo build, so a failure means the application is wrong. The demo
-app's `missing-security-headers` and `verbose-errors` switches exist to show the header and
-data-exposure rules firing. From the command line the library is opt-in: `--library` (the console
-turns it on).
+Each must hold on a correct build, so a failure means the application is wrong. The in-process
+demo's `missing-security-headers` and `verbose-errors` switches, and the Meridian Docs defects
+([projects.md](projects.md)), exist to show these rules firing. The full list with descriptions is in
+[security-properties.md](security-properties.md). From the command line the library is opt-in:
+`--library` (the console turns it on).
