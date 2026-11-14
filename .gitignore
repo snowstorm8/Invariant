@@ -12,3 +12,4 @@ report.*
 
 # Rule files authored for trying things out (the shipped rules live in src/invariant/integrations/)
 examples/*/rules/
+.DS_Store
