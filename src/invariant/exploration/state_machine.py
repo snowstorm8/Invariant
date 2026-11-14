@@ -46,6 +46,8 @@ class ExplorationSink:
     executions: int = 0
     #: Raised failures, plus INCONCLUSIVE steps a non-strict engine did not raise.
     failures: list[RunFailure] = field(default_factory=list)
+    #: Per rule id, on how many steps the rule was in scope and held.
+    held: dict[str, int] = field(default_factory=dict)
 
 
 def build_state_machine(
@@ -86,6 +88,9 @@ def build_state_machine(
             except RunFailure as failure:
                 sink.failures.append(failure)
                 raise
+            for evaluation in record.evaluations:
+                if evaluation.outcome is Outcome.PASS:
+                    sink.held[evaluation.property_id] = sink.held.get(evaluation.property_id, 0) + 1
             # Non-strict engines keep going after an INCONCLUSIVE step instead of
             # raising. The run continues, but the step must still reach the sink:
             # otherwise the exploration would be reported as PASS. The first such

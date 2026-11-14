@@ -35,7 +35,10 @@ The console has four tabs.
 2. **Rules**: leave everything on.
 3. **Run exploration**: seed `1`, `200` sequences → *Run exploration*.
 
-About a minute later the result reads "N rules violated". Select a rule to see the minimal
+About a minute later the result reads "N rules violated". Below the failed rules, **Passed rules**
+lists every enabled rule that held, with the number of steps it was checked on; rules that never
+applied to a generated step are listed separately as *never exercised* (their passing says nothing,
+so run more sequences). Select a failed rule to see the minimal
 operation sequence that broke it and the evidence; *Open full report* gives the full page, and
 *Replay on this build* confirms each finding on a fresh instance. The walkthrough
 [demo-walkthrough.md](demo-walkthrough.md) explains what you are looking at.

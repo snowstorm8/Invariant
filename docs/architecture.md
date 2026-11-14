@@ -103,6 +103,11 @@ replayed on its own (every other rule muted) and appears in `Report.findings` wi
 one more search per round, and a rule that fails only in long sequences needs a larger
 `--max-examples`.
 
+Every step also counts, per rule, the `PASS` evaluations (`ExplorationSink.held`); `explore` keeps
+the largest count across rounds and the report carries it as `Report.held`. The console's *Passed
+rules* card is the enabled rules that did not fail, split into those that held on at least one step
+and those that were never in scope.
+
 ## Reproduction and reports
 
 `explore()` takes the shortest violating run for each rule, minimises it by deleting operations

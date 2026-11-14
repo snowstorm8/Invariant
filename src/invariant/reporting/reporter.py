@@ -67,6 +67,7 @@ def build_report(
     properties: Mapping[str, Property] | None = None,
     rules: RuleSet | None = None,
     confirmed: Sequence[Confirmed] | None = None,
+    held: Mapping[str, int] | None = None,
 ) -> Report:
     """``properties`` is the metadata of the rules the run was judged with
     (default: the built-in ones); ``rules`` is embedded so the report replays
@@ -82,6 +83,7 @@ def build_report(
             executions=executions,
             seed=seed,
             rules=embedded,
+            held=dict(held or {}),
         )
     if not confirmed:
         assert failure is not None
@@ -100,6 +102,7 @@ def build_report(
         steps=first.steps,
         reproduced=first.reproduced,
         rules=embedded,
+        held=dict(held or {}),
     )
 
 

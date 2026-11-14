@@ -56,4 +56,7 @@ class Report(BaseModel):
     #: was chosen explicitly. None means the integration's built-in rules.
     #: Replaying the report re-applies exactly these rules.
     rules: list[dict[str, Any]] | None = None
+    #: Per rule id, on how many steps the rule was in scope and held (PASS).
+    #: A rule absent or at 0 was never exercised, so passing says little.
+    held: dict[str, int] = Field(default_factory=dict)
     note: str = DISCLAIMER

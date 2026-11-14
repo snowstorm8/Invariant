@@ -112,6 +112,7 @@ def explore(
     confirmed: list[Confirmed] = []
     reported: list[str] = []
     executions = 0
+    held: dict[str, int] = {}
     for _ in range(len(evaluator.properties) + 1):
         sink, failure = _search(
             adapter_factory,
@@ -123,6 +124,8 @@ def explore(
             strict=strict,
         )
         executions += sink.executions
+        for rule_id, count in sink.held.items():
+            held[rule_id] = max(held.get(rule_id, 0), count)
         if failure is None:
             break
         if not isinstance(failure, PropertyViolationError):
@@ -165,6 +168,7 @@ def explore(
         properties=evaluator.catalog,
         rules=rules,
         confirmed=confirmed,
+        held=held,
     )
     return ExplorationResult(report.outcome, report)
 

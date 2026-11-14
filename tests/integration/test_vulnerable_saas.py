@@ -280,3 +280,16 @@ def test_non_strict_violation_still_outranks_inconclusive():
 def test_non_strict_clean_target_still_passes():
     result = explore(fixed_adapter, seed=0, max_examples=30, strict=False)
     assert result.outcome is Outcome.PASS and result.report.finding is None
+
+
+def test_a_report_counts_the_steps_each_passing_rule_held_on() -> None:
+    result = explore(fixed_adapter, seed=1, max_examples=15)
+    assert result.outcome is Outcome.PASS
+    held = result.report.held
+    assert held and all(count > 0 for count in held.values())
+    assert {"TI-1", "TI-2", "AZ-1"} <= set(held)
+
+    broken = explore(vulnerable_adapter, seed=1, max_examples=200).report
+    failed = {f.property_id for f in broken.findings}
+    assert "TI-1" in failed
+    assert all(n > 0 for n in broken.held.values())

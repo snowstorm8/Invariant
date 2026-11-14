@@ -68,6 +68,12 @@
   @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
   .col { display: grid; gap: 16px; min-width: 0; }
 
+  .bulk { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 16px 0; font-size: 12px; }
+  .gh { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 12px; margin-top: 4px; border-top: 1px solid var(--border); list-style: none; }
+  .gh .gt { background: none; border: 0; padding: 0; text-align: left; font: inherit; font-weight: 600; color: var(--fg); cursor: pointer; }
+  .gh .cnt { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .gh .chev { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0 2px; font-size: 12px; width: 16px; }
+  .gh input[type="checkbox"] { width: 16px; height: 16px; margin: 0; cursor: pointer; }
   .group-label { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); padding: 12px 16px 4px; }
   ul.rules { list-style: none; margin: 0; padding: 0 8px 8px; }
   .rule { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: center; padding: 8px; border-radius: 8px; border: 1px solid transparent; }
@@ -248,7 +254,15 @@
             <input type="file" id="upload-input" accept=".json,application/json" hidden>
           </div>
         </div>
-        <div class="card-b" style="padding:10px 16px 0"><input type="search" id="rule-filter" placeholder="Filter rules by name, id or severity" aria-label="Filter rules" style="width:100%"></div>
+        <div class="card-b" style="padding:10px 16px 0"><input type="search" id="rule-filter" placeholder="Filter rules by name, id, tag or severity" aria-label="Filter rules" style="width:100%"></div>
+        <div class="bulk">
+          <span class="muted" id="bulk-count"></span>
+          <span class="row">
+            <button class="btn ghost sm" id="bulk-on">Enable all</button>
+            <button class="btn ghost sm" id="bulk-off">Disable all</button>
+            <button class="btn ghost sm" id="bulk-mine" title="Switch every built-in rule off and every rule of yours on">Only my rules</button>
+          </span>
+        </div>
         <p class="empty" id="filter-empty" hidden>No rules match this filter.</p>
         <div class="group-label">Your rules</div>
         <ul class="rules" id="custom-rules"></ul>
@@ -479,6 +493,10 @@ function current() { return state.rules.find((r) => r.key === state.key) || null
 function dirty() { return editable() && $("#source").value !== state.saved; }
 function editable() { const r = current(); return !r || r.editable; }
 
+const GROUP_TITLES = { "access-control": "Access control", "data-exposure": "Data exposure", headers: "Headers and cookies", integrity: "Integrity" };
+const groupTitle = (tag) => GROUP_TITLES[tag] || (tag ? tag[0].toUpperCase() + tag.slice(1) : "Other");
+const collapsed = new Set();
+
 function renderRuleList() {
   const row = (rule) => h("li", { class: "rule", "aria-current": String(rule.key === state.key) },
     h("label", { class: "switch", title: rule.enabled ? "Enabled: checked during exploration" : "Disabled" },
@@ -491,14 +509,58 @@ function renderRuleList() {
         rule.origin === "imported" ? h("span", { class: "tag", title: rule.filename }, "imported") : null,
         rule.valid ? null : h("span", { class: "tag bad" }, "needs fixing"))));
   const q = $("#rule-filter").value.trim().toLowerCase();
-  const match = (r) => !q || [r.name, r.id, r.severity].filter(Boolean).some((v) => String(v).toLowerCase().includes(q));
+  const match = (r) => !q || [r.name, r.id, r.severity, ...(r.tags || [])].filter(Boolean).some((v) => String(v).toLowerCase().includes(q));
   const custom = state.rules.filter((r) => r.origin !== "builtin");
   const builtin = state.rules.filter((r) => r.origin === "builtin");
   $("#custom-rules").replaceChildren(...custom.filter(match).map(row));
   $("#custom-empty").hidden = custom.length > 0;
-  $("#builtin-rules").replaceChildren(...builtin.filter(match).map(row));
+
+  // Built-in rules, one collapsible group per first tag with a switch for the whole group.
+  const groups = new Map();
+  for (const r of builtin.filter(match)) {
+    const tag = (r.tags && r.tags[0]) || "";
+    if (!groups.has(tag)) groups.set(tag, []);
+    groups.get(tag).push(r);
+  }
+  const nodes = [];
+  for (const [tag, rules] of groups) {
+    const on = rules.filter((r) => r.enabled).length;
+    const open = !!q || !collapsed.has(tag);
+    const toggle = () => { open && !q ? collapsed.add(tag) : collapsed.delete(tag); renderRuleList(); };
+    const box = h("input", { type: "checkbox", checked: on === rules.length, "aria-label": `Enable every ${groupTitle(tag)} rule`, onchange: (e) => bulkSet(rules.map((r) => r.key), e.target.checked) });
+    box.indeterminate = on > 0 && on < rules.length;
+    nodes.push(h("li", { class: "gh" },
+      h("button", { class: "chev", "aria-expanded": String(open), "aria-label": `${open ? "Collapse" : "Expand"} ${groupTitle(tag)}`, onclick: toggle }, open ? "▾" : "▸"),
+      box, h("button", { class: "gt", onclick: toggle }, groupTitle(tag)), h("span", { class: "cnt" }, `${on}/${rules.length} on`)));
+    if (open) nodes.push(...rules.map(row));
+  }
+  $("#builtin-rules").replaceChildren(...nodes);
   $("#filter-empty").hidden = !q || custom.some(match) || builtin.some(match);
+
+  const shown = state.rules.filter(match);
+  $("#bulk-count").textContent = `${state.rules.filter((r) => r.enabled).length} of ${state.rules.length} on`;
+  $("#bulk-on").textContent = q ? `Enable shown (${shown.length})` : "Enable all";
+  $("#bulk-off").textContent = q ? `Disable shown (${shown.length})` : "Disable all";
+  $("#bulk-on").disabled = $("#bulk-off").disabled = shown.length === 0;
 }
+
+async function bulkSet(keys, enabled) {
+  if (!keys.length) return;
+  try { state.rules = (await api("/api/rules/enabled-many", { keys, enabled })).rules; }
+  catch (err) { banner("bad", err.message, err.diagnostics); }
+  renderRuleList(); renderActiveRules();
+}
+function shownRules() {
+  const q = $("#rule-filter").value.trim().toLowerCase();
+  return state.rules.filter((r) => !q || [r.name, r.id, r.severity, ...(r.tags || [])].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)));
+}
+$("#bulk-on").addEventListener("click", () => bulkSet(shownRules().map((r) => r.key), true));
+$("#bulk-off").addEventListener("click", () => bulkSet(shownRules().map((r) => r.key), false));
+$("#bulk-mine").addEventListener("click", async () => {
+  const builtin = state.rules.filter((r) => r.origin === "builtin" && r.enabled).map((r) => r.key);
+  const mine = state.rules.filter((r) => r.origin !== "builtin" && !r.enabled).map((r) => r.key);
+  await bulkSet(builtin, false); await bulkSet(mine, true);
+});
 
 $("#rule-filter").addEventListener("input", () => renderRuleList());
 
@@ -1523,7 +1585,18 @@ function renderResult(selected = 0) {
           ...s.evaluations.filter((e) => e.outcome !== "PASS").map((e) => h("span", { class: "tag " + (e.outcome === "VIOLATION" ? "bad" : "warn"), title: e.summary }, `${e.property_id} ${e.outcome}`)))))))));
   }
   if (f) cards.push(h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", {}, "Evidence")), h("div", { class: "card-b" }, h("pre", { class: "code" }, JSON.stringify(f.evidence, null, 2)))));
-  cards.push(h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", {}, "Rules checked on every step")), h("div", { class: "card-b chips" }, scan.rules_used.map((r) => h("span", { class: "chip sev", dataset: { s: r.severity } }, r.id)))));
+  const failedIds = new Set(all.map((x) => x.property_id));
+  const heldCounts = report.held || {};
+  const passed = scan.rules_used.filter((r) => !failedIds.has(r.id) && (heldCounts[r.id] || 0) > 0);
+  const unexercised = scan.rules_used.filter((r) => !failedIds.has(r.id) && !(heldCounts[r.id] > 0));
+  cards.push(h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", {}, `Passed rules (${passed.length})`), h("span", { class: "muted", style: "font-size:12px" }, "held on every step where they applied")),
+    h("div", { class: "card-b" },
+      passed.length ? h("div", { class: "findings" }, passed.map((r) => h("div", { class: "finding" },
+        h("span", { class: "tag good" }, "PASS"), h("b", { class: "mono" }, r.id), h("span", { class: "muted" }, r.name !== r.id ? r.name : ""),
+        r.severity ? h("span", { class: "chip sev", dataset: { s: r.severity } }, r.severity) : null,
+        h("span", { class: "chip" }, `held on ${heldCounts[r.id]} steps`)))) : h("p", { class: "muted", style: "margin:0" }, "No rule passed."),
+      unexercised.length ? h("p", { class: "muted", style: "margin:14px 0 6px" }, `Never exercised (${unexercised.length}): the rule did not apply to any generated step, so its passing says nothing. Try more sequences.`) : null,
+      unexercised.length ? h("div", { class: "chips" }, unexercised.map((r) => h("span", { class: "chip sev", dataset: { s: r.severity } }, r.id))) : null)));
   $("#result").replaceChildren(...cards);
 }
 
