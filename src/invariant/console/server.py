@@ -51,11 +51,16 @@ def make_handler(app: ConsoleApp, allowed_hosts: frozenset[str]) -> type[BaseHTT
         "/api/scan": app.scan,
         "/api/replay": app.replay,
         "/api/report-html": app.report_html,
+        "/api/project/pick": app.project_pick,
+        "/api/project/inspect": app.project_inspect,
+        "/api/project/open": app.project_open,
+        "/api/project/close": app.project_close,
     }
     gets: dict[str, Callable[[], dict[str, Any]]] = {
         "/api/bootstrap": app.bootstrap,
         "/api/rules/export": app.export,
         "/api/settings": app.get_settings,
+        "/api/project": app.project_state,
     }
 
     class Handler(BaseHTTPRequestHandler):

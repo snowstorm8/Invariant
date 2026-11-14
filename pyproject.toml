@@ -17,8 +17,8 @@ dependencies = [
 
 [project.optional-dependencies]
 # The deliberately vulnerable demonstration application.
-demo = ["fastapi>=0.110"]
-dev = ["fastapi>=0.110", "pytest>=8", "mypy>=1.10"]
+demo = ["fastapi>=0.110", "uvicorn>=0.30"]
+dev = ["fastapi>=0.110", "uvicorn>=0.30", "pytest>=8", "mypy>=1.10"]
 
 [project.scripts]
 invariant = "invariant.cli.main:app"
@@ -28,14 +28,14 @@ packages = ["src/invariant"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# `examples/` holds the demo app (imported as `vulnerable_saas`).
-pythonpath = ["examples", "tests"]
+# `examples/` holds the demo apps (imported as `vulnerable_saas` and, from its folder, `meridian`).
+pythonpath = ["examples", "examples/meridian_docs", "tests"]
 filterwarnings = ["ignore:Using .httpx. with"]
 addopts = "-ra"
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["src/invariant", "examples/vulnerable_saas"]
-mypy_path = "src:examples"
+files = ["src/invariant", "examples/vulnerable_saas", "examples/meridian_docs"]
+mypy_path = "src:examples:examples/meridian_docs"
 explicit_package_bases = true

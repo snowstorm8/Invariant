@@ -90,7 +90,11 @@ def build_state_machine(
             # raising. The run continues, but the step must still reach the sink:
             # otherwise the exploration would be reported as PASS. The first such
             # step per execution is enough (it has the shortest history).
-            if record.outcome is Outcome.INCONCLUSIVE and not self._inconclusive_seen:
+            if (
+                record.outcome is Outcome.INCONCLUSIVE
+                and not self._inconclusive_seen
+                and not self.engine.muted_violation
+            ):
                 self._inconclusive_seen = True
                 first = next(e for e in record.evaluations if e.outcome is Outcome.INCONCLUSIVE)
                 sink.failures.append(

@@ -96,10 +96,13 @@ class Engine:
         #: Terminal: only a successful ``reset()`` clears it, because the model
         #: can no longer be trusted and must not be built upon.
         self._invalid: str | None = None
-        #: True once a step violated a property the evaluator has muted. The
-        #: model may no longer match the target after such a step, so callers
-        #: stop the run there instead of building on it.
+        #: True once a step violated a muted property in a way that may have left the
+        #: model and the target disagreeing (a write that went through, or a failed
+        #: state check). Callers stop the run there instead of building on it. A muted
+        #: violation that only concerns the shape of a response (a header, a status)
+        #: leaves the state alone, so the run goes on.
         self.muted_violation = False
+        self._state_probing: frozenset[str] = frozenset()
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -189,6 +192,7 @@ class Engine:
         # the response, so the probes are taken even if the operation itself
         # got no answer.
         planned = Step(op, actor, decision, self.state, tuple(self._events))
+        self._state_probing = self.evaluator.probing(planned)
         probes: dict[ProbeRequest, Observation] = {}
         for request in self.evaluator.plan(planned):
             probe = self._run_probe(request)
@@ -360,10 +364,34 @@ class Engine:
             evaluations=evaluations,
         )
 
+    def _may_diverge(self, record: StepRecord, evaluation: Evaluation) -> bool:
+        """Could this (muted) violation have left the target different from the model?
+
+        Yes for a failed state check, for a write the policy forbids that went through,
+        for a write that failed with a server error (nobody knows whether it took
+        effect), and when the engine could not verify an authorised write. A muted
+        violation about the shape of a response (a header, a cookie, a status) does not.
+        """
+        if evaluation.property_id in self._state_probing:
+            return True
+        if not isinstance(record.operation, (CreateDocument, UpdateDocument, DeleteDocument)):
+            return False
+        if record.status is None or record.status >= 500:
+            return True
+        if record.status < 300 and not record.allowed_by_policy:
+            return True
+        return any(
+            e.property_id == EXECUTION.id and e.outcome is Outcome.INCONCLUSIVE
+            for e in record.evaluations
+        )
+
     def _raise_if_failed(self, record: StepRecord) -> None:
         found = [e for e in record.evaluations if e.outcome is Outcome.VIOLATION]
         violations = [e for e in found if e.property_id not in self.evaluator.muted]
-        if len(violations) < len(found):
+        diverged = any(
+            self._may_diverge(record, e) for e in found if e.property_id in self.evaluator.muted
+        )
+        if diverged:
             self.muted_violation = True
         if violations:
             first = violations[0]
@@ -372,6 +400,10 @@ class Engine:
                 record,
                 list(self.history),
             )
+        if diverged:
+            # The muted failure is why the state check could not be decided; the
+            # caller ends this run quietly (``muted_violation``).
+            return
         inconclusive = [e for e in record.evaluations if e.outcome is Outcome.INCONCLUSIVE]
         if inconclusive:
             is_setup = isinstance(record.operation, (CreateOrg, CreateUser))

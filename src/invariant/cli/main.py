@@ -189,8 +189,15 @@ def replay_cmd(
 @app.command("console")
 def console_cmd(
     target: Annotated[
-        str, typer.Argument(help="Console target as 'module:callable' returning a ConsoleTarget.")
-    ] = "vulnerable_saas.target:console_target",
+        str | None,
+        typer.Argument(
+            help="Optional: open this console target ('module:callable' returning a ConsoleTarget) "
+            "instead of choosing a project folder."
+        ),
+    ] = None,
+    demo: Annotated[
+        bool, typer.Option("--demo", help="Open the built-in vulnerable demo application.")
+    ] = False,
     app_dir: AppDirOpt = Path("examples"),
     host: Annotated[str, typer.Option(help="Address to listen on.")] = "127.0.0.1",
     port: Annotated[int, typer.Option(min=0, max=65535)] = 8765,
@@ -201,23 +208,29 @@ def console_cmd(
         bool, typer.Option("--open/--no-open", help="Open the console in a browser.")
     ] = True,
 ) -> None:
-    """Open the Invariant console: write, import and manage rules, then explore the target."""
+    """Open the Invariant console: choose an application folder, manage rules, run the exploration."""
     from invariant.console.app import ConsoleApp
     from invariant.console.server import make_server
     from invariant.console.store import RuleStore
     from invariant.console.target import ConsoleTarget
 
-    described = load_factory(target, app_dir)()
-    if not isinstance(described, ConsoleTarget):
-        raise typer.BadParameter(f"{target!r} did not return a ConsoleTarget")
+    described: ConsoleTarget | None = None
+    if demo and target is None:
+        target = "vulnerable_saas.target:console_target"
+    if target is not None:
+        loaded = load_factory(target, app_dir)()
+        if not isinstance(loaded, ConsoleTarget):
+            raise typer.BadParameter(f"{target!r} did not return a ConsoleTarget")
+        described = loaded
     try:
         rule_store = RuleStore(store)
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
-    server = make_server(ConsoleApp(described, rule_store), host, port)
+    console = ConsoleApp(described, rule_store, start_dir=app_dir.resolve() if app_dir.is_dir() else None)
+    server = make_server(console, host, port)
     shown = "localhost" if host in ("127.0.0.1", "::1") else host
     url = f"http://{shown}:{server.server_address[1]}/"
-    typer.echo(f"Invariant console for {described.name}: {url}  (Ctrl+C to stop)")
+    typer.echo(f"Invariant console: {url}  (Ctrl+C to stop)")
     if open_browser:
         webbrowser.open(url)
     try:
@@ -226,6 +239,7 @@ def console_cmd(
         typer.echo("\nstopped")
     finally:
         server.server_close()
+        console.close()
 
 
 if __name__ == "__main__":

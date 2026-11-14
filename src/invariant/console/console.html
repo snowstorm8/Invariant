@@ -126,6 +126,14 @@
   .example { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border); }
   .example:first-child { border-top: 0; }
 
+  .project { display: grid; gap: 16px; max-width: 760px; margin: 0 auto; }
+  .pathrow { display: flex; gap: 8px; align-items: end; }
+  input[type="text"]#path-input { background: var(--bg); border: 1px solid var(--border-strong); border-radius: 8px; padding: 8px 10px; color: var(--fg); font-family: var(--mono); font-size: 12px; width: 100%; }
+  .manifest { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-2); }
+  .manifest dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: 12px; }
+  .manifest dt { color: var(--dim); } .manifest dd { margin: 0; font-family: var(--mono); overflow-wrap: anywhere; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--dim); }
+  .dot.up { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
   .form { display: grid; gap: 16px; }
   .opt { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; padding: 8px 0; }
   .opt .t { font-weight: 500; } .opt .d { color: var(--muted); font-size: 12px; }
@@ -180,6 +188,7 @@
       <span class="pill" id="target-name"></span>
     </div>
     <div class="seg" role="tablist" aria-label="Console sections">
+      <button role="tab" id="tab-project" aria-selected="false" aria-controls="view-project">Project</button>
       <button role="tab" id="tab-rules" aria-selected="true" aria-controls="view-rules">Rules</button>
       <button role="tab" id="tab-run" aria-selected="false" aria-controls="view-run">Run exploration</button>
       <button role="tab" id="tab-settings" aria-selected="false" aria-controls="view-settings">Settings</button>
@@ -187,6 +196,28 @@
   </header>
 
   <div id="banner" class="banner" hidden role="status"><div id="banner-body"></div><button id="banner-close" aria-label="Dismiss">✕</button></div>
+
+  <!-- ============================= PROJECT ============================= -->
+  <section id="view-project" role="tabpanel" aria-labelledby="tab-project" hidden>
+    <div class="project">
+      <div class="card" id="project-picker">
+        <div class="card-h"><h2>Choose the application to test</h2></div>
+        <div class="card-b form">
+          <p class="muted" style="margin:0">Pick the folder of an application that has an <span class="mono">invariant.toml</span>. Invariant reads it, shows you the command it would run, and only starts the application after you confirm. It is started on this machine and tested over HTTP; nothing leaves it.</p>
+          <div class="row">
+            <button class="btn" id="pick-btn">Choose folder…</button>
+            <span id="pick-busy" hidden class="row muted"><span class="spinner"></span> Waiting for the folder dialog…</span>
+          </div>
+          <div class="pathrow">
+            <label class="f" style="flex:1">or type a folder path<input type="text" id="path-input" spellcheck="false" autocomplete="off" placeholder="/path/to/application"></label>
+            <button class="btn ghost" id="inspect-btn">Inspect</button>
+          </div>
+          <div id="inspection"></div>
+        </div>
+      </div>
+      <div id="project-running"></div>
+    </div>
+  </section>
 
   <!-- ============================== RULES ============================== -->
   <section id="view-rules" role="tabpanel" aria-labelledby="tab-rules">
@@ -388,13 +419,14 @@ function describeWhere(d) {
 
 // ------------------------------------------------------------------- tabs
 function showTab(name) {
-  for (const tab of ["rules", "run", "settings"]) {
+  for (const tab of ["project", "rules", "run", "settings"]) {
     $(`#tab-${tab}`).setAttribute("aria-selected", String(tab === name));
     $(`#view-${tab}`).hidden = tab !== name;
   }
   if (name === "run") renderActiveRules();
   if (name === "settings") renderSettings();
 }
+$("#tab-project").addEventListener("click", () => showTab("project"));
 $("#tab-rules").addEventListener("click", () => showTab("rules"));
 $("#tab-run").addEventListener("click", () => showTab("run"));
 $("#tab-settings").addEventListener("click", () => showTab("settings"));
@@ -1177,6 +1209,18 @@ function renderReference() {
 // ------------------------------------------------------------------- run
 function renderOptions() {
   const target = state.boot.target;
+  if (!target) {
+    $("#options").replaceChildren(h("div", { class: "muted" }, "No application is open. Choose a project folder on the Project tab."));
+    $("#options-hint").textContent = ""; $("#run-btn").disabled = true;
+    return;
+  }
+  $("#run-btn").disabled = false;
+  if (!target.options.length) {
+    const p = state.boot.project && state.boot.project.project;
+    $("#options").replaceChildren(h("div", { class: "row" }, h("span", { class: "dot " + (p && p.running ? "up" : "") }), h("b", {}, target.name), p && p.running ? h("span", { class: "muted mono", style: "font-size:12px" }, p.url) : null));
+    $("#options-hint").textContent = "The application is tested exactly as it runs; it is reset before every sequence.";
+    return;
+  }
   $("#options").replaceChildren(...target.options.map((o) => h("label", { class: "opt" },
     h("input", { type: "checkbox", value: o.id, checked: o.id === target.options[0].id }),
     h("span", {}, h("span", { class: "t" }, o.title), o.property ? h("span", { class: "muted mono", style: "font-size:11px" }, `  expected to trip ${o.property}`) : null, h("div", { class: "d" }, o.description)))));
@@ -1336,6 +1380,82 @@ $("#settings-save").addEventListener("click", async () => {
   } catch (err) { banner("bad", err.message, err.diagnostics); }
 });
 
+// ---------------------------------------------------------------- project
+const projectView = { inspected: null };
+
+function renderInspection() {
+  const box = $("#inspection"), got = projectView.inspected;
+  if (!got) { box.replaceChildren(); return; }
+  if (!got.manifest) {
+    box.replaceChildren(h("div", { class: "banner bad", style: "margin:0" }, h("div", {}, h("div", { class: "mono", style: "font-size:12px;margin-bottom:4px" }, got.path), got.error)));
+    return;
+  }
+  const m = got.manifest;
+  box.replaceChildren(h("div", { class: "manifest" },
+    h("div", {}, h("b", {}, m.name), m.description ? h("div", { class: "muted", style: "font-size:12px" }, m.description) : null),
+    h("dl", {}, h("dt", {}, "folder"), h("dd", {}, m.folder), h("dt", {}, "will run"), h("dd", {}, m.command.replace("{port}", "<free port>")),
+      h("dt", {}, "ready when"), h("dd", {}, `GET ${m.health} answers 200`), h("dt", {}, "reset between tests"), h("dd", {}, `POST ${m.reset}`)),
+    h("div", { class: "row" }, h("button", { class: "btn", id: "open-btn", onclick: () => openProject(m.folder) }, "Open project and start the application"),
+      h("span", { id: "open-busy", hidden: true, class: "row muted" }, h("span", { class: "spinner" }), "Starting…"))));
+}
+
+function renderProject() {
+  const info = state.boot.project, running = $("#project-running");
+  const p = info && info.project;
+  $("#target-name").textContent = state.boot.target ? "target: " + state.boot.target.name : "no application open";
+  $("#pick-btn").hidden = !(info && info.dialog);
+  if (!p) { running.replaceChildren(); $("#project-picker").hidden = false; return; }
+  running.replaceChildren(h("div", { class: "card" },
+    h("div", { class: "card-h" }, h("h2", {}, p.name), h("span", { class: "row" }, h("span", { class: "dot " + (p.running ? "up" : "") }), h("span", { class: "muted" }, p.running ? "running" : "stopped"))),
+    h("div", { class: "card-b form" },
+      h("dl", { class: "manifest", style: "margin:0;border:0;padding:0;background:none" }, h("dl", {}, h("dt", {}, "address"), h("dd", {}, p.url || "-"), h("dt", {}, "folder"), h("dd", {}, p.folder), h("dt", {}, "command"), h("dd", {}, p.command))),
+      h("div", { class: "row" },
+        h("button", { class: "btn", onclick: () => showTab("rules") }, "Continue to the rules"),
+        h("button", { class: "btn ghost", onclick: closeProject }, "Stop and choose another")))));
+  $("#project-picker").hidden = true;
+}
+
+async function inspectPath(path) {
+  try {
+    projectView.inspected = await api("/api/project/inspect", { path });
+    $("#path-input").value = projectView.inspected.path;
+    renderInspection();
+  } catch (err) { banner("bad", err.message); }
+}
+
+$("#pick-btn").addEventListener("click", async () => {
+  $("#pick-btn").disabled = true; $("#pick-busy").hidden = false;
+  try {
+    const out = await api("/api/project/pick", {});
+    if (!out.supported) { banner("bad", "This machine has no folder dialog. Type the folder path instead."); $("#pick-btn").hidden = true; }
+    else if (out.path) { projectView.inspected = out; $("#path-input").value = out.path; renderInspection(); $("#banner").hidden = true; }
+  } catch (err) { banner("bad", err.message); }
+  finally { $("#pick-btn").disabled = false; $("#pick-busy").hidden = true; }
+});
+$("#inspect-btn").addEventListener("click", () => { const v = $("#path-input").value.trim(); if (v) inspectPath(v); });
+$("#path-input").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#inspect-btn").click(); });
+
+async function openProject(path) {
+  const button = $("#open-btn"); button.disabled = true; $("#open-busy").hidden = false;
+  try {
+    const out = await api("/api/project/open", { path });
+    state.boot.project = out.project; state.boot.target = out.target; state.rules = out.rules;
+    projectView.inspected = null; renderInspection();
+    renderProject(); renderOptions(); renderRuleList(); renderActiveRules();
+    banner("good", `${out.target.name} is running. Review the rules, then run the exploration.`);
+    showTab("rules");
+  } catch (err) { banner("bad", err.message, err.diagnostics); button.disabled = false; $("#open-busy").hidden = true; }
+}
+
+async function closeProject() {
+  try {
+    const out = await api("/api/project/close", {});
+    state.boot.project = out.project; state.boot.target = out.target; state.scan = null; state.report = null;
+    $("#result").replaceChildren(h("div", { class: "card" }, h("div", { class: "card-b muted" }, "No run yet.")));
+    renderProject(); renderOptions();
+  } catch (err) { banner("bad", err.message); }
+}
+
 // ------------------------------------------------------------------ start
 (async function start() {
   try {
@@ -1343,11 +1463,12 @@ $("#settings-save").addEventListener("click", async () => {
   } catch (err) { banner("bad", err.message); $("#status-text").textContent = "Not connected."; return; }
   state.rules = state.boot.rules;
   $("#version").textContent = "v" + state.boot.version;
-  $("#target-name").textContent = "target: " + state.boot.target.name;
+  renderProject();
   renderReference(); renderOptions(); renderActiveRules();
   const first = state.rules.find((r) => r.origin !== "builtin");
   if (first) loadEditor(first.key, first.source, first.source);
   else loadEditor(null, state.boot.language.template, state.boot.language.template);
+  if (!state.boot.target) showTab("project");
 })();
 </script>
 </body>

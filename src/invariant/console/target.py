@@ -36,8 +36,12 @@ class ConsoleTarget:
     description: str = ""
     #: Supplies the context rules are written against.
     binding: RuleBinding = field(default=DOCUMENT_SAAS)
+    #: Called when the console stops using this target (a project's process is stopped here).
+    close: Callable[[], None] | None = None
 
     def label(self, options: frozenset[str]) -> str:
+        if not self.options:
+            return self.name  # an application as it is: there are no builds to choose from
         return f"{self.name}[" + (",".join(sorted(options)) or "fixed") + "]"
 
     def parse_options(self, raw: object) -> frozenset[str]:

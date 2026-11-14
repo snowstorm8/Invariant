@@ -8,7 +8,7 @@ Property-based testing of security invariants (authorization / tenant isolation)
 - `.venv/bin/pytest` — all tests (~1 min); `pytest tests/unit` is sub-second
 - `.venv/bin/mypy` — strict type check (must stay clean)
 - `./scripts/demo.sh` — end-to-end demo against the local vulnerable app
-- `.venv/bin/invariant console` — browser console (rules + exploration) on localhost:8765
+- `.venv/bin/invariant console` — browser console on localhost:8765: Project (choose a folder with an `invariant.toml`, e.g. `examples/meridian_docs`) → Rules → Run (`--demo` preloads the built-in demo; `docs/projects.md`)
 
 ## Rules
 - Hypothesis chooses operations only. Security verdicts come from `SecurityProperty.evaluate`
@@ -27,7 +27,8 @@ Property-based testing of security invariants (authorization / tenant isolation)
 - Scenarios use symbolic refs (`org0`, `user1`, `doc2`), never app IDs or tokens, so they replay.
 - Only update the expected-state model for operations the policy authorised.
 - Test only the local demo app. Do not point Invariant at third-party systems.
-- `examples/vulnerable_saas` is intentionally insecure; never deploy it.
+- `examples/vulnerable_saas` and `examples/meridian_docs` are intentionally insecure; never deploy them.
+- A muted rule's violation ends a sequence only if it may have desynchronised model and target (`Engine._may_diverge`); header/status violations do not.
 - Each component needs tests; new defects need a pinned scenario in `tests/regression/scenarios`.
 - Empty scaffold files (`core/config.py`, `core/context.py`, `exploration/strategies.py`,
   `evaluation/assertions.py`, `reporting/formats.py`) are intentionally unimplemented.

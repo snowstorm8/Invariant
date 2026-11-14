@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "operations": [
+    {
+      "kind": "create_org",
+      "ref": "org1",
+      "name": "org1"
+    },
+    {
+      "kind": "create_user",
+      "ref": "user0",
+      "org": "org1",
+      "role": "member"
+    },
+    {
+      "kind": "create_document",
+      "ref": "doc1",
+      "actor": "user0",
+      "content": "yxcy9ba"
+    },
+    {
+      "kind": "delete_document",
+      "actor": "user0",
+      "doc": "doc1"
+    }
+  ]
+}

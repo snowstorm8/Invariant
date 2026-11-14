@@ -161,7 +161,43 @@ def test_a_muted_rule_is_still_evaluated_but_does_not_fail_the_run():
         engine.close()
     last = engine.history[-1]
     assert [e.outcome for e in last.evaluations if e.property_id == "TI-1"] == [Outcome.VIOLATION]
+    # A read cannot desynchronise the model from the target, so the run may go on.
+    assert engine.muted_violation is False
+
+
+def _run_muted(flag: str) -> Engine:
+    """Run a pinned Meridian scenario with every rule muted."""
+    from pathlib import Path
+
+    from meridian_support import MeridianAdapter, shipped_rules
+
+    from invariant.core.scenario import Scenario
+
+    path = Path(__file__).parent.parent / "regression" / "scenarios" / "meridian" / f"{flag}.json"
+    scenario = Scenario.model_validate_json(path.read_text())
+    muted = {p.id for p in Evaluator.for_rules(shipped_rules()).properties}
+    engine = Engine(
+        MeridianAdapter(frozenset({flag})),
+        Evaluator.for_rules(shipped_rules()).muting(muted),
+        strict=False,
+    )
+    engine.reset()
+    try:
+        for op in scenario.operations:
+            engine.apply(op)  # type: ignore[arg-type]
+    finally:
+        engine.close()
+    return engine
+
+
+def test_a_muted_violation_by_a_write_the_policy_forbids_ends_the_run():
+    engine = _run_muted("coediting-lease")  # a viewer's update was accepted
     assert engine.muted_violation is True
+
+
+def test_a_muted_violation_about_a_header_does_not_end_the_run():
+    engine = _run_muted("lean-error-pages")  # error responses lack a header
+    assert engine.muted_violation is False
 
 
 def test_without_muting_the_same_step_raises():

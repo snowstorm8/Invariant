@@ -20,12 +20,13 @@ from .base import Action, Adapter, AdapterError, Call, Observation
 
 
 class HttpAdapter(Adapter):
-    def __init__(self, client: httpx.Client) -> None:
+    def __init__(self, client: httpx.Client, *, reset_path: str = "/_admin/reset") -> None:
         self._client = client
+        self._reset_path = reset_path
 
     def reset(self) -> None:
         try:
-            response = self._client.post("/_admin/reset")
+            response = self._client.post(self._reset_path)
         except httpx.HTTPError as exc:
             raise AdapterError(f"reset failed: {exc!r}") from exc
         try:

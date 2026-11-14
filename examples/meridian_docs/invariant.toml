@@ -1,0 +1,17 @@
+# Tells Invariant how to run and reset this application.
+# Invariant starts it as a local process, tests it over HTTP, and stops it afterwards.
+
+[project]
+name = "Meridian Docs"
+description = "Multi-tenant enterprise document platform (workspaces, roles, revisions, trash, search)."
+
+[run]
+command = ["python", "server.py", "--host", "127.0.0.1", "--port", "{port}"]
+health = "/healthz"
+start_timeout = 20
+
+[contract]
+# The application speaks Invariant's document contract: provisioning under /_admin,
+# documents under /documents, Bearer tokens.
+integration = "document-saas"
+reset = "/_admin/reset"

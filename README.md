@@ -16,7 +16,7 @@ This is a prototype: it tests only the local demo app that ships in `examples/`.
 python -m venv .venv && .venv/bin/pip install -e '.[dev]'
 .venv/bin/pytest            # ~2 minutes; exploration tests dominate
 ./scripts/demo.sh           # violation -> replay -> fixed app passes
-.venv/bin/invariant console # write and manage rules, run explorations, in the browser
+.venv/bin/invariant console # choose an app folder, manage rules, run explorations, in the browser
 ```
 
 ## Your own rules

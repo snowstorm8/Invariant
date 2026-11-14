@@ -10,7 +10,8 @@
 The console is the main interface for writing and managing rules:
 
 ```bash
-.venv/bin/invariant console            # http://localhost:8765, demo app as the target
+.venv/bin/invariant console            # http://localhost:8765: choose an application folder (docs/projects.md)
+.venv/bin/invariant console --demo     # the built-in vulnerable demo as the target
 ```
 
 Rule files also work from the command line: `invariant explore ... --rules my.rules [--no-builtin]`

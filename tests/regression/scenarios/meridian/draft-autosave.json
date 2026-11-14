@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "operations": [
+    {
+      "kind": "create_org",
+      "ref": "org0",
+      "name": "org0"
+    },
+    {
+      "kind": "create_user",
+      "ref": "user1",
+      "org": "org0",
+      "role": "admin"
+    },
+    {
+      "kind": "create_user",
+      "ref": "user2",
+      "org": "org0",
+      "role": "viewer"
+    },
+    {
+      "kind": "create_document",
+      "ref": "doc3",
+      "actor": "user1",
+      "content": "b19bcaa"
+    },
+    {
+      "kind": "read_document",
+      "actor": "user2",
+      "doc": "doc3"
+    },
+    {
+      "kind": "update_document",
+      "actor": "user2",
+      "doc": "doc3",
+      "content": ""
+    }
+  ]
+}

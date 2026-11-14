@@ -14,6 +14,7 @@ import json
 import re
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from invariant import __version__
@@ -23,6 +24,7 @@ from invariant.core.scenario import describe_op
 from invariant.evaluation.evaluator import evaluator_for_report
 from invariant.exploration.runner import explore
 from invariant.integrations.builtin_rules import builtin_document, shipped_document
+from invariant.integrations.document_saas import DOCUMENT_SAAS
 from invariant.properties.base import Property
 from invariant.reporting.models import Report
 from invariant.reporting.reporter import render_html
@@ -37,6 +39,8 @@ from invariant.rules.printer import format_rule, format_rules, quote
 from invariant.rules.types import ContextSchema
 from invariant.rules.validator import validate_rule
 
+from . import dialogs
+from .project import Manifest, ProjectError, RunningProject, load_manifest
 from .store import RuleStore, StoredRule
 from .target import ConsoleTarget
 
@@ -219,10 +223,20 @@ def _int(raw: object, name: str, *, minimum: int | None = None, optional: bool =
 
 class ConsoleApp:
     def __init__(
-        self, target: ConsoleTarget, store: RuleStore | None = None, *, library: bool = True
+        self,
+        target: ConsoleTarget | None = None,
+        store: RuleStore | None = None,
+        *,
+        library: bool = True,
+        start_dir: Path | None = None,
     ) -> None:
-        self.target = target
-        self.schema = target.binding.schema
+        #: The application under test. None until a project folder (or a target the
+        #: console was started with) is opened; rules can be written without one.
+        self.target: ConsoleTarget | None = target
+        self.schema = (target.binding if target else DOCUMENT_SAAS).schema
+        #: Where the folder dialog opens.
+        self.start_dir = start_dir
+        self._project: RunningProject | None = None
         self.store = store or RuleStore()
         #: Every rule that ships (core + default library), with the ids it was written with.
         #: ``library=False`` offers only the three core rules.
@@ -256,15 +270,8 @@ class ConsoleApp:
     def bootstrap(self) -> dict[str, Any]:
         return {
             "version": __version__,
-            "target": {
-                "name": self.target.name,
-                "description": self.target.description,
-                "options": [
-                    {"id": o.id, "title": o.title, "description": o.description,
-                     "property": o.property}
-                    for o in self.target.options
-                ],  # fmt: skip
-            },
+            "target": self._target_json(),
+            "project": self.project_state(),
             "language": {
                 "schema": self.schema.describe(),
                 "functions": describe_functions(),
@@ -276,6 +283,97 @@ class ConsoleApp:
             "rules": self.list_rules(),
             "settings": self.get_settings(),
         }
+
+    def _target_json(self) -> dict[str, Any] | None:
+        target = self.target
+        if target is None:
+            return None
+        return {
+            "name": target.name,
+            "description": target.description,
+            "options": [
+                {"id": o.id, "title": o.title, "description": o.description, "property": o.property}
+                for o in target.options
+            ],
+        }
+
+    def _need_target(self) -> ConsoleTarget:
+        if self.target is None:
+            raise ConsoleError("open a project folder first (the Project tab)")
+        return self.target
+
+    # -- project (the application under test) -------------------------------------------
+
+    def project_state(self) -> dict[str, Any]:
+        running = self._project
+        return {
+            "open": running is not None,
+            "project": running.state() if running else None,
+            "dialog": dialogs.available(),
+            "start_dir": str(self.start_dir) if self.start_dir else "",
+        }
+
+    def project_pick(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Open the system's folder dialog, then describe the chosen folder (nothing is run)."""
+        choice = dialogs.choose_folder(self.start_dir)
+        if not choice.supported:
+            return {"supported": False, "path": None, "manifest": None, "error": ""}
+        if choice.error:
+            raise ConsoleError(choice.error)
+        if choice.path is None:
+            return {"supported": True, "path": None, "manifest": None, "error": ""}
+        return {"supported": True, **self._inspect(choice.path)}
+
+    def project_inspect(self, request: dict[str, Any]) -> dict[str, Any]:
+        raw = request.get("path")
+        if not isinstance(raw, str) or not raw.strip():
+            raise ConsoleError("path must be a folder path")
+        return self._inspect(Path(raw.strip()))
+
+    @staticmethod
+    def _inspect(folder: Path) -> dict[str, Any]:
+        try:
+            manifest: Manifest = load_manifest(folder)
+        except ProjectError as exc:
+            return {"path": str(folder), "manifest": None, "error": str(exc)}
+        return {"path": str(manifest.folder), "manifest": manifest.describe(), "error": ""}
+
+    def project_open(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Start the project in the folder and make it the application under test."""
+        raw = request.get("path")
+        if not isinstance(raw, str) or not raw.strip():
+            raise ConsoleError("path must be a folder path")
+        try:
+            manifest = load_manifest(Path(raw.strip()))
+        except ProjectError as exc:
+            raise ConsoleError(str(exc)) from exc
+        with self._lock:
+            self._close_project()
+            running = RunningProject(manifest)
+            try:
+                running.start()
+            except ProjectError as exc:
+                raise ConsoleError(str(exc)) from exc
+            self._project = running
+            self.target = running.console_target()
+            self.schema = self.target.binding.schema
+        return {"project": self.project_state(), "target": self._target_json(), "rules": self.list_rules()}
+
+    def project_close(self, request: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._close_project()
+        return {"project": self.project_state(), "target": self._target_json()}
+
+    def _close_project(self) -> None:
+        if self._project is not None:
+            self._project.stop()
+            self._project = None
+            self.target = None
+
+    def close(self) -> None:
+        """Stop anything the console started."""
+        with self._lock:
+            self._close_project()
 
     # -- validation ----------------------------------------------------------
 
@@ -741,7 +839,8 @@ class ConsoleApp:
 
     def scan(self, request: dict[str, Any]) -> dict[str, Any]:
         """Explore the target with the enabled rules."""
-        options = self.target.parse_options(request.get("options", []))
+        target = self._need_target()
+        options = target.parse_options(request.get("options", []))
         seed = _int(request.get("seed"), "seed", optional=True)
         max_examples = _int(request.get("max_examples", 200), "max_examples", minimum=1)
         assert max_examples is not None
@@ -749,8 +848,8 @@ class ConsoleApp:
             rules = self.active_ruleset()
             started = time.perf_counter()
             result = explore(
-                lambda: self.target.adapter_for(options),
-                target=self.target.label(options),
+                lambda: target.adapter_for(options),
+                target=target.label(options),
                 seed=seed,
                 max_examples=max_examples,
                 rules=rules,
@@ -770,12 +869,13 @@ class ConsoleApp:
 
     def replay(self, request: dict[str, Any]) -> dict[str, Any]:
         """Re-run a report's scenario, judged by the rules stored in the report."""
-        options = self.target.parse_options(request.get("options", []))
+        target = self._need_target()
+        options = target.parse_options(request.get("options", []))
         report = Report.model_validate(request.get("report"))
         if report.scenario is None:
             raise ConsoleError("report has no scenario to replay")
         try:
-            evaluator = evaluator_for_report(report.rules, self.target.binding)
+            evaluator = evaluator_for_report(report.rules, target.binding)
         except RuleError as exc:
             raise ConsoleError(
                 f"the rules stored in the report are not valid: {exc}",
@@ -784,7 +884,7 @@ class ConsoleApp:
         with self._lock:
             started = time.perf_counter()
             result = replay(
-                report.scenario, lambda: self.target.adapter_for(options), evaluator=evaluator
+                report.scenario, lambda: target.adapter_for(options), evaluator=evaluator
             )
             # Each finding has its own minimal scenario. Replay it with every
             # other rule muted, so the answer is "does this rule alone still fail".
@@ -795,7 +895,7 @@ class ConsoleApp:
                     continue
                 again = replay(
                     finding.scenario,
-                    lambda: self.target.adapter_for(options),
+                    lambda: target.adapter_for(options),
                     evaluator=evaluator.muting(every_rule - {finding.property_id}),
                 )
                 findings.append(
@@ -820,7 +920,7 @@ class ConsoleApp:
             "violated": violated,
             "steps": len(result.history),
             "findings": findings,
-            "target": self.target.label(options),
+            "target": target.label(options),
             "duration_ms": int((time.perf_counter() - started) * 1000),
         }
 

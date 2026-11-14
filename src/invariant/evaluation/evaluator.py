@@ -105,6 +105,12 @@ class Evaluator:
         """Metadata of every property this evaluator judges, by id."""
         return {prop.id: prop.info for prop in self.properties}
 
+    def probing(self, step: Step) -> frozenset[str]:
+        """Ids of the properties in scope of ``step`` that need evidence of the
+        target's state. Only these (and writes that succeeded) can witness, or
+        cause, a model that no longer matches the target."""
+        return frozenset(p.id for p in self.properties if p.applies(step) and p.requires(step))
+
     def plan(self, step: Step) -> list[ProbeRequest]:
         """The probes needed to judge ``step``: what every property in scope
         requires, in evaluation order, each request once.
