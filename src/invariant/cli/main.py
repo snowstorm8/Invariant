@@ -3,6 +3,7 @@
     invariant explore vulnerable_saas.target:vulnerable_adapter --app-dir examples
     invariant replay report.json vulnerable_saas.target:vulnerable_adapter --app-dir examples
     invariant view report.json
+    invariant console                      # rule management and exploration in the browser
 
 
 Exit codes: 0 = PASS, 1 = VIOLATION, 2 = INCONCLUSIVE or usage error.
@@ -22,8 +23,16 @@ from pydantic import ValidationError
 
 from invariant.adapters.base import Adapter
 from invariant.analysis.reproduction import replay
+from invariant.evaluation.evaluator import evaluator_for_report
 from invariant.evaluation.violations import Outcome
 from invariant.exploration.runner import explore
+from invariant.integrations.builtin_rules import builtin_document
+from invariant.integrations.document_saas import SCHEMA
+from invariant.rules import jsonio
+from invariant.rules.engine import RuleSet
+from invariant.rules.errors import RuleError
+from invariant.rules.ir import Rule
+from invariant.rules.parser import parse_rules
 from invariant.reporting.reporter import (
     load_report,
     render_text,
@@ -53,6 +62,30 @@ def load_factory(spec: str, app_dir: Path) -> Callable[[], Adapter]:
     return factory  # type: ignore[no-any-return]
 
 
+def load_rules(paths: list[Path], *, builtin: bool) -> RuleSet | None:
+    """Rules from files (``.json``: the JSON format; anything else: rule-language text).
+
+    None when nothing was asked for, which selects the built-in rules.
+    """
+    if not paths and builtin:
+        return None
+    rules: list[Rule] = list(builtin_document().rules) if builtin else []
+    try:
+        for path in paths:
+            text = path.read_text("utf-8")
+            if path.suffix.lower() == ".json":
+                document = jsonio.loads(text)
+                rules += [r for r in document.rules if r.id not in document.disabled]
+            else:
+                rules += parse_rules(text).rules
+        if not rules:
+            raise typer.BadParameter("no rules selected")
+        return RuleSet(rules, SCHEMA)
+    except RuleError as exc:
+        lines = "\n".join(f"  {d}" for d in exc.diagnostics)
+        raise typer.BadParameter(f"invalid rules:\n{lines}") from exc
+
+
 @app.command("explore")
 def explore_cmd(
     target: TargetArg,
@@ -63,10 +96,26 @@ def explore_cmd(
     html: Annotated[
         Path | None, typer.Option(help="Write a self-contained HTML report here.")
     ] = None,
+    rules: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--rules", exists=True, dir_okay=False,
+            help="Rule file to add (.json, or rule-language text). Repeatable.",
+        ),
+    ] = None,  # fmt: skip
+    builtin: Annotated[
+        bool, typer.Option("--builtin/--no-builtin", help="Include the built-in rules.")
+    ] = True,
 ) -> None:
     """Search for security-property violations against TARGET (local targets only)."""
     factory = load_factory(target, app_dir)
-    result = explore(factory, target=target, seed=seed, max_examples=max_examples)
+    result = explore(
+        factory,
+        target=target,
+        seed=seed,
+        max_examples=max_examples,
+        rules=load_rules(rules or [], builtin=builtin),
+    )
     typer.echo(render_text(result.report))
     if report is not None:
         save_report(result.report, report)
@@ -111,7 +160,13 @@ def replay_cmd(
     if saved.scenario is None:
         typer.echo("report contains no scenario to replay")
         raise typer.Exit(2)
-    result = replay(saved.scenario, load_factory(target, app_dir))
+    try:
+        # Judge with the rules the report was produced with.
+        evaluator = evaluator_for_report(saved.rules)
+    except RuleError as exc:
+        typer.echo(f"the rules stored in the report are not valid: {exc}")
+        raise typer.Exit(2) from exc
+    result = replay(saved.scenario, load_factory(target, app_dir), evaluator=evaluator)
     if not result.valid:
         typer.echo("scenario is invalid for this target (unknown references)")
         raise typer.Exit(2)
@@ -119,6 +174,48 @@ def replay_cmd(
     if result.failure is not None:
         typer.echo(str(result.failure))
     raise typer.Exit(EXIT[result.outcome])
+
+
+@app.command("console")
+def console_cmd(
+    target: Annotated[
+        str, typer.Argument(help="Console target as 'module:callable' returning a ConsoleTarget.")
+    ] = "vulnerable_saas.target:console_target",
+    app_dir: AppDirOpt = Path("examples"),
+    host: Annotated[str, typer.Option(help="Address to listen on.")] = "127.0.0.1",
+    port: Annotated[int, typer.Option(min=0, max=65535)] = 8765,
+    store: Annotated[
+        Path, typer.Option(help="File that keeps the rules you create or import.")
+    ] = Path(".invariant/rules.json"),
+    open_browser: Annotated[
+        bool, typer.Option("--open/--no-open", help="Open the console in a browser.")
+    ] = True,
+) -> None:
+    """Open the Invariant console: write, import and manage rules, then explore the target."""
+    from invariant.console.app import ConsoleApp
+    from invariant.console.server import make_server
+    from invariant.console.store import RuleStore
+    from invariant.console.target import ConsoleTarget
+
+    described = load_factory(target, app_dir)()
+    if not isinstance(described, ConsoleTarget):
+        raise typer.BadParameter(f"{target!r} did not return a ConsoleTarget")
+    try:
+        rule_store = RuleStore(store)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    server = make_server(ConsoleApp(described, rule_store), host, port)
+    shown = "localhost" if host in ("127.0.0.1", "::1") else host
+    url = f"http://{shown}:{server.server_address[1]}/"
+    typer.echo(f"Invariant console for {described.name}: {url}  (Ctrl+C to stop)")
+    if open_browser:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        typer.echo("\nstopped")
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

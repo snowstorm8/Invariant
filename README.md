@@ -14,9 +14,27 @@ This is a prototype: it tests only the local demo app that ships in `examples/`.
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-.venv/bin/pytest            # ~1 minute; exploration tests dominate
+.venv/bin/pytest            # ~2 minutes; exploration tests dominate
 ./scripts/demo.sh           # violation -> replay -> fixed app passes
+.venv/bin/invariant console # write and manage rules, run explorations, in the browser
 ```
+
+## Your own rules
+
+Security rules are data, not code. Write them in the console or upload a JSON file; Invariant
+validates them and checks them on every step of every operation sequence it explores.
+
+```
+rule "read-returns-own-tenant" {
+    severity critical
+    when operation.type == "read_document"
+    always response.status == 200 implies response.json.org_id == actor.org_id
+}
+```
+
+The three built-in rules (TI-1, TI-2, AZ-1) are written in the same language
+(`src/invariant/integrations/document_saas.rules`) and can be switched off individually.
+See [docs/rules.md](docs/rules.md).
 
 ## What the demo shows
 
@@ -41,11 +59,14 @@ Reproduced by deterministic replay on a fresh target: yes
 |---|---|
 | `exploration/` | Hypothesis `RuleBasedStateMachine` picks operations and arguments. Knows nothing about security. |
 | `core/engine.py` | Executes one operation via the adapter, takes the probes the evaluator plans, keeps the expected-state model. |
-| `properties/` | Property statements (TI-1, TI-2, AZ-1), the reference authorization policy, and how each property is judged (`SecurityProperty`). |
+| `rules/` | The rule language: parser, JSON format, validator, interpreter. Knows no application. |
+| `integrations/` | What rules can refer to for a given application (`RuleBinding`, schema), and its built-in rule file. |
+| `properties/` | The reference authorization policy, and `RuleCheck`, which presents a rule to the evaluator as a `SecurityProperty`. |
 | `evaluation/` | Framework around the properties: plans probes, runs each property in scope, owns `INCONCLUSIVE`. Deterministic; no LLM, no status-code trust. |
 | `adapters/` | `reset()` / `execute()` / `close()` contract; `HttpAdapter` for REST targets. |
 | `analysis/` | Replay of a symbolic scenario and 1-minimal reduction. |
-| `reporting/` | Structured JSON report and text rendering. |
+| `reporting/` | Structured JSON report, text rendering and the HTML report viewer. |
+| `console/` | The browser console: rule management and exploration (`invariant console`). |
 
 See [docs/architecture.md](docs/architecture.md) and [docs/security-properties.md](docs/security-properties.md).
 

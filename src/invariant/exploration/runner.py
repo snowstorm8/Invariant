@@ -14,9 +14,11 @@ from invariant.adapters.base import Adapter
 from invariant.analysis.minimizer import minimize, violates
 from invariant.analysis.reproduction import replay
 from invariant.core.engine import PropertyViolationError, RunFailure
+from invariant.evaluation.evaluator import Evaluator
 from invariant.evaluation.violations import Outcome
 from invariant.reporting.models import Report
 from invariant.reporting.reporter import build_report
+from invariant.rules.engine import RuleSet
 
 from .state_machine import ExplorationSink, build_state_machine
 
@@ -50,10 +52,19 @@ def explore(
     seed: int | None = None,
     num_orgs: int = 2,
     strict: bool = True,
+    rules: RuleSet | None = None,
 ) -> ExplorationResult:
-    """Search for a violation. ``seed`` makes the search itself repeatable."""
+    """Search for a violation. ``seed`` makes the search itself repeatable.
+
+    ``rules`` is the rule set to hold the target to: any mix of built-in and
+    user-defined rules. Every step of every generated sequence is judged by all
+    of them. Without it, the integration's built-in rules are used.
+    """
+    evaluator = Evaluator.for_rules(rules) if rules is not None else Evaluator()
     sink = ExplorationSink()
-    machine = build_state_machine(adapter_factory, sink=sink, num_orgs=num_orgs, strict=strict)
+    machine = build_state_machine(
+        adapter_factory, sink=sink, num_orgs=num_orgs, strict=strict, evaluator=evaluator
+    )
     config = settings(
         max_examples=max_examples,
         stateful_step_count=step_count,
@@ -87,12 +98,16 @@ def explore(
                 e.property_id for e in failure.record.evaluations if e.outcome is Outcome.VIOLATION
             )
             _, minimal = minimize(
-                failure.scenario, adapter_factory, property_id=prop_id, strict=strict
+                failure.scenario,
+                adapter_factory,
+                property_id=prop_id,
+                strict=strict,
+                evaluator=evaluator,
             )
             if minimal.failure is not None and violates(minimal, prop_id):
                 failure = minimal.failure
         # Independent replay of exactly what the report will contain.
-        again = replay(failure.scenario, adapter_factory, strict=strict)
+        again = replay(failure.scenario, adapter_factory, strict=strict, evaluator=evaluator)
         reproduced = again.outcome == failure.record.outcome
     report = build_report(
         target=target,
@@ -100,5 +115,7 @@ def explore(
         executions=sink.executions,
         seed=seed,
         reproduced=reproduced,
+        properties=evaluator.catalog,
+        rules=rules,
     )
     return ExplorationResult(report.outcome, report)

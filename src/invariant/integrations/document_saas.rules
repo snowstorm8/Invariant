@@ -1,0 +1,82 @@
+# Built-in rules for the document SaaS integration.
+#
+# These are ordinary rules in Invariant's rule language: nothing about them is
+# special-cased in Python. They are loaded at start-up exactly as a rule a
+# developer writes in the console would be.
+#
+# Order matters: the first violation on a step decides how a failure is
+# attributed.
+
+rule "tenant-read-isolation" {
+    id "TI-1"
+    description "A principal must never receive data belonging to a resource owned by another organization."
+    severity critical
+
+    # Every write plants a unique marker in the stored content. Seeing the
+    # marker of another organization's document in a response means its data
+    # was disclosed, whatever the status code or response shape.
+    let leaked = [
+        {doc: d.ref, owner_org: d.org, marker: d.marker}
+        for d in state.documents
+        where d.org != actor.org and contains(response.body, d.marker)
+    ]
+    let owners = [x.doc + " (owned by " + x.owner_org + ")" for x in leaked]
+
+    never count(leaked) > 0
+
+    message "{actor.ref} ({actor.org}) received data of {join(owners, ', ')}"
+    pass_message "no data of other organizations observed in the response"
+    evidence {
+        leaked: leaked,
+        status: response.status,
+        response_excerpt: response.excerpt
+    }
+}
+
+rule "tenant-write-isolation" {
+    id "TI-2"
+    description "A principal must never modify or delete a resource owned by another organization."
+    severity critical
+
+    # Scope comes from the reference policy: a write it denied under TI-2 must
+    # leave the affected organization exactly as the model expects it.
+    when operation.is_write and has(policy.denials["TI-2"])
+    let reason = policy.denials["TI-2"].reason
+    let org = coalesce(resource.org, actor.org)
+    observe listing = org_documents(org)
+    let differences = diff(state.expected_listing[org], listing)
+
+    never count(differences) > 0
+
+    message "forbidden operation ({reason}) changed application state of {org}: {join(differences, '; ')}"
+    pass_message "state of {org} unchanged after forbidden operation ({reason})"
+    evidence {
+        reason: reason,
+        differences: differences,
+        response_status: response.status,
+        response_excerpt: response.excerpt
+    }
+}
+
+rule "role-write-permission" {
+    id "AZ-1"
+    description "A principal must not perform a write operation that its role does not permit."
+    severity high
+
+    when operation.is_write and has(policy.denials["AZ-1"])
+    let reason = policy.denials["AZ-1"].reason
+    let org = coalesce(resource.org, actor.org)
+    observe listing = org_documents(org)
+    let differences = diff(state.expected_listing[org], listing)
+
+    never count(differences) > 0
+
+    message "forbidden operation ({reason}) changed application state of {org}: {join(differences, '; ')}"
+    pass_message "state of {org} unchanged after forbidden operation ({reason})"
+    evidence {
+        reason: reason,
+        differences: differences,
+        response_status: response.status,
+        response_excerpt: response.excerpt
+    }
+}

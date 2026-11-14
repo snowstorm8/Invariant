@@ -20,7 +20,7 @@ from invariant.properties.checks import (
     ROLE_WRITE_PERMISSION_CHECK,
     TENANT_READ_ISOLATION_CHECK,
     TENANT_WRITE_ISOLATION_CHECK,
-    ForbiddenWriteIntegrity,
+    RuleCheck,
 )
 from invariant.properties.isolation import TENANT_READ_ISOLATION, TENANT_WRITE_ISOLATION
 from invariant.properties.registry import PROPERTIES
@@ -51,9 +51,11 @@ def test_checks_are_the_registered_properties_in_evaluation_order():
     assert {p.id: p.info for p in CHECKS} == PROPERTIES
 
 
-def test_ti2_and_az1_are_distinct_instances_sharing_one_implementation():
+def test_every_builtin_check_is_an_interpreted_rule():
+    # No property has a Python implementation of its own any more: all three are
+    # rules from integrations/document_saas.rules, judged by one interpreter.
     assert TI2 is not AZ1 and (TI2.id, AZ1.id) == ("TI-2", "AZ-1")
-    assert type(TI2) is type(AZ1) is ForbiddenWriteIntegrity
+    assert type(TI1) is type(TI2) is type(AZ1) is RuleCheck
 
 
 # -- scope comes from the policy decision -----------------------------------

@@ -19,6 +19,8 @@ from invariant.core.scenario import Operation
 from invariant.core.state import ModelState, UserModel
 from invariant.evaluation.snapshots import Snapshot
 from invariant.evaluation.violations import Outcome
+from invariant.rules.ir import Rule
+from invariant.rules.printer import format_expr
 
 if TYPE_CHECKING:
     # authorization.py imports this module; the policy code stays where it is.
@@ -30,6 +32,15 @@ class Property:
     id: str
     name: str
     statement: str  # what the software must never allow
+    severity: str | None = None
+
+    @classmethod
+    def from_rule(cls, rule: Rule) -> Property:
+        """Metadata of a rule: its description, or its assertions as written."""
+        statement = rule.description or "; ".join(
+            f"{a.kind} {format_expr(a.condition)}" for a in rule.assertions
+        )
+        return cls(id=rule.id, name=rule.name, statement=statement, severity=rule.severity)
 
 
 @dataclass(frozen=True)
@@ -43,6 +54,9 @@ class Step:
     decision: Decision
     #: Expected state *before* the operation. Read-only by contract.
     state: ModelState
+    #: Earlier actor operations of this run, oldest first, each as the plain
+    #: record the rule binding made of it (operation, actor, policy, response).
+    history: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)

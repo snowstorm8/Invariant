@@ -6,6 +6,13 @@ Reads one request from stdin, writes one JSON document to stdout.
     {"action": "replay", "defects": [...], "report": {...}}
     {"action": "html",   "report": {...}}
     {"action": "catalog"}
+    {"action": "language"}
+    {"action": "validate", "source": "rule ...", "format": "text" | "json"}
+
+A scan may select its rules: ``"builtin_rules"`` (true, false or a list of
+ids) and ``"rules"`` (a list of rule definitions, each rule-language text or a
+JSON rule object). Without either, the built-in rules are used. The report
+records the rules it was judged with, and ``replay`` re-applies them.
 """
 
 from __future__ import annotations
@@ -19,31 +26,15 @@ warnings.filterwarnings("ignore")
 sys.path.insert(0, "examples")
 
 from invariant.analysis.reproduction import replay  # noqa: E402
+from invariant.console.app import ConsoleApp, ruleset_from_request  # noqa: E402
+from invariant.evaluation.evaluator import evaluator_for_report  # noqa: E402
+from invariant.integrations.document_saas import SCHEMA  # noqa: E402
 from invariant.exploration.runner import explore  # noqa: E402
 from invariant.properties.registry import PROPERTIES  # noqa: E402
 from invariant.reporting.models import Report  # noqa: E402
 from invariant.reporting.reporter import render_html  # noqa: E402
 from vulnerable_saas.app.models import KNOWN_DEFECTS  # noqa: E402
-from vulnerable_saas.target import adapter_for  # noqa: E402
-
-DEFECTS = {
-    "stale-cache-read": {
-        "title": "Stale cache read",
-        "description": "GET /documents/{id} serves recently updated documents from a cache keyed by id only, skipping the tenant check.",
-        "property": "TI-1",
-    },
-    "update-missing-tenant-check": {
-        "title": "Update missing tenant check",
-        "description": "PUT /documents/{id} checks the caller's role but not that the document belongs to the caller's organization.",
-        "property": "TI-2",
-    },
-    "viewer-can-update": {
-        "title": "Viewer can update",
-        "description": "PUT /documents/{id} does not enforce the role check, so read-only viewers can modify documents.",
-        "property": "AZ-1",
-    },
-}
-
+from vulnerable_saas.target import DEFECTS, adapter_for, console_target  # noqa: E402
 
 def target_name(defects: frozenset[str]) -> str:
     return "vulnerable_saas[" + (",".join(sorted(defects)) or "fixed") + "]"
@@ -91,12 +82,14 @@ def main() -> None:
         defects = parse_defects(req.get("defects", []))
         seed = parse_seed(req.get("seed"))
         max_examples = parse_max_examples(req.get("max_examples", 200))
+        rules = ruleset_from_request(req.get("rules"), req.get("builtin_rules"), SCHEMA)
         started = time.perf_counter()
         result = explore(
             lambda: adapter_for(defects),
             target=target_name(defects),
             seed=seed,
             max_examples=max_examples,
+            **({} if rules is None else {"rules": rules}),
         )
         out = {
             "report": json.loads(result.report.model_dump_json()),
@@ -107,8 +100,9 @@ def main() -> None:
         report = Report.model_validate(req["report"])
         if report.scenario is None:
             raise ValueError("report has no scenario to replay")
+        evaluator = evaluator_for_report(report.rules)
         started = time.perf_counter()
-        result = replay(report.scenario, lambda: adapter_for(defects))
+        result = replay(report.scenario, lambda: adapter_for(defects), evaluator=evaluator)
         out = {
             "outcome": str(result.outcome),
             "valid": result.valid,
@@ -116,6 +110,10 @@ def main() -> None:
             "steps": len(result.history),
             "duration_ms": int((time.perf_counter() - started) * 1000),
         }
+    elif action == "language":
+        out = ConsoleApp(console_target()).bootstrap()["language"]
+    elif action == "validate":
+        out = ConsoleApp(console_target()).validate(req)
     elif action == "html":
         out = {"html": render_html(Report.model_validate(req["report"]))}
     else:

@@ -9,6 +9,16 @@
   INCONCLUSIVE, never as a violation. Cost: one extra request per authorised write. Residual risk:
   the verification trusts the listing endpoint; a target whose listing and storage disagree
   consistently would pass, and unauthorised-write detection shares the same probe mechanism.
+- **Rules are interpreted, never executed.** A rule is parsed into an IR and walked by
+  `rules/interpreter.py`; there is no `eval`, no attribute access on Python objects, and a closed
+  function table. Evaluation has a step budget per rule per step (exceeding it is INCONCLUSIVE).
+- **`when` cannot see the response.** Scope and probe arguments are decided before the target
+  answers, so the calls a scenario makes do not depend on the response being judged. They may depend
+  on earlier responses through `events`. Response conditions go in the assertion (`implies`).
+- **An `observe` clause takes one probe with arguments known up front**; a rule cannot probe once per
+  element of a list.
+- **The console is single-user and local.** It binds to loopback, refuses other Host names and
+  cross-origin requests, and runs one exploration at a time.
 - **Confidentiality detection relies on markers** the engine writes into content. It cannot see
   leaks of data it did not plant (IDs, metadata, user names) or leaks via side channels.
 - **Fixed topology**: two orgs, any number of users with random roles, documents. No sharing,

@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from invariant.adapters.http import HttpAdapter
+from invariant.console.target import ConsoleTarget, TargetOption
 
 from .app.main import create_app
 
@@ -39,3 +40,33 @@ def vulnerable_adapter() -> HttpAdapter:
 
 def fixed_adapter() -> HttpAdapter:
     return adapter_for(frozenset())
+
+
+#: The seeded defects, described for people (the console and the web bridge).
+DEFECTS = {
+    "stale-cache-read": {
+        "title": "Stale cache read",
+        "description": "GET /documents/{id} serves recently updated documents from a cache keyed by id only, skipping the tenant check.",
+        "property": "TI-1",
+    },
+    "update-missing-tenant-check": {
+        "title": "Update missing tenant check",
+        "description": "PUT /documents/{id} checks the caller's role but not that the document belongs to the caller's organization.",
+        "property": "TI-2",
+    },
+    "viewer-can-update": {
+        "title": "Viewer can update",
+        "description": "PUT /documents/{id} does not enforce the role check, so read-only viewers can modify documents.",
+        "property": "AZ-1",
+    },
+}
+
+
+def console_target() -> ConsoleTarget:
+    """The demo app as the console presents it: one switch per seeded defect."""
+    return ConsoleTarget(
+        name="vulnerable_saas",
+        description="Local, deliberately vulnerable multi-tenant document service.",
+        adapter_for=adapter_for,
+        options=tuple(TargetOption(id=k, **v) for k, v in DEFECTS.items()),
+    )

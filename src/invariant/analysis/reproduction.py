@@ -9,6 +9,7 @@ from invariant.adapters.base import Adapter
 from invariant.core.engine import Engine, RunFailure, StepRecord
 from invariant.core.scenario import Scenario
 from invariant.core.state import UnknownRefError
+from invariant.evaluation.evaluator import Evaluator
 from invariant.evaluation.violations import Outcome
 
 
@@ -23,10 +24,17 @@ class ReplayResult:
 
 
 def replay(
-    scenario: Scenario, adapter_factory: Callable[[], Adapter], *, strict: bool = True
+    scenario: Scenario,
+    adapter_factory: Callable[[], Adapter],
+    *,
+    strict: bool = True,
+    evaluator: Evaluator | None = None,
 ) -> ReplayResult:
-    """Run ``scenario`` on a fresh, reset target and report the first failure."""
-    engine = Engine(adapter_factory(), strict=strict)
+    """Run ``scenario`` on a fresh, reset target and report the first failure.
+
+    ``evaluator`` selects the rules to judge with (default: the built-in set).
+    """
+    engine = Engine(adapter_factory(), evaluator, strict=strict)
     try:
         engine.reset()
         for op in scenario.operations:

@@ -1,0 +1,722 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#08090b">
+<title>Invariant — Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #08090b; --surface: #0f1114; --surface-2: #14171b; --border: #1f242b; --border-strong: #2b323b;
+    --fg: #e8eaed; --muted: #8a929e; --dim: #5c6470;
+    --danger: #ff5a5f; --danger-bg: rgba(255, 90, 95, 0.08);
+    --ok: #3ee0a1; --ok-bg: rgba(62, 224, 161, 0.08);
+    --warn: #f6b445; --warn-bg: rgba(246, 180, 69, 0.08);
+    --info: #6ea8fe;
+    --radius: 10px;
+    --sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+    --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  body {
+    background-image: radial-gradient(1200px 400px at 50% -200px, rgba(62, 224, 161, 0.06), transparent 70%);
+    background-attachment: fixed;
+  }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 0 20px 64px; }
+  .mono { font-family: var(--mono); }
+  .muted { color: var(--muted); }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: not-allowed; opacity: 0.5; }
+  :focus-visible { outline: 2px solid var(--ok); outline-offset: 2px; border-radius: 6px; }
+  [hidden] { display: none !important; }
+
+  header.nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -0.01em; font-size: 15px; }
+  .brand .ver, .pill { font-family: var(--mono); font-size: 11px; color: var(--muted); border: 1px solid var(--border-strong); padding: 1px 7px; border-radius: 999px; font-weight: 400; white-space: nowrap; }
+  .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 8px; padding: 2px; background: var(--surface); }
+  .seg button { background: none; border: 0; padding: 6px 14px; border-radius: 6px; color: var(--muted); font-size: 13px; }
+  .seg button[aria-selected="true"], .seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); box-shadow: inset 0 0 0 1px var(--border-strong); }
+  .seg.small button { padding: 3px 10px; font-size: 12px; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; background: var(--fg); color: var(--bg); border: 0; padding: 7px 12px; border-radius: 8px; font-weight: 500; font-size: 13px; white-space: nowrap; }
+  .btn.ghost { background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong); }
+  .btn.danger { background: var(--surface); color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); }
+  .btn.sm { padding: 4px 9px; font-size: 12px; }
+  .btn:hover:not(:disabled) { opacity: 0.88; }
+
+  .card { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+  .card-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .card-h h2, .card-h h3 { margin: 0; font-size: 13px; font-weight: 600; }
+  .card-b { padding: 16px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  .layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; margin-top: 16px; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  .col { display: grid; gap: 16px; min-width: 0; }
+
+  .group-label { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); padding: 12px 16px 4px; }
+  ul.rules { list-style: none; margin: 0; padding: 0 8px 8px; }
+  .rule { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: center; padding: 8px; border-radius: 8px; border: 1px solid transparent; }
+  .rule[aria-current="true"] { background: var(--surface-2); border-color: var(--border-strong); }
+  .rule .open { background: none; border: 0; padding: 0; text-align: left; min-width: 0; display: grid; gap: 2px; }
+  .rule .nm { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rule .meta { display: flex; gap: 6px; align-items: center; font-family: var(--mono); font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+  .sev { display: inline-flex; align-items: center; gap: 5px; }
+  .sev::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+  .sev[data-s="critical"]::before { background: var(--danger); } .sev[data-s="high"]::before { background: #ff9457; }
+  .sev[data-s="medium"]::before { background: var(--warn); } .sev[data-s="low"]::before { background: var(--info); }
+  .tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--border-strong); color: var(--muted); }
+  .tag.bad { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: var(--danger-bg); }
+  .tag.good { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, transparent); background: var(--ok-bg); }
+  .tag.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: var(--warn-bg); }
+  .empty { color: var(--muted); padding: 6px 16px 14px; font-size: 13px; }
+
+  .switch { position: relative; width: 34px; height: 20px; flex: none; }
+  .switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; width: 100%; height: 100%; }
+  .switch span { position: absolute; inset: 0; border-radius: 999px; background: var(--border-strong); transition: background .15s; pointer-events: none; }
+  .switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--fg); transition: transform .15s; }
+  .switch input:checked + span { background: var(--ok); }
+  .switch input:checked + span::after { transform: translateX(14px); background: var(--bg); }
+  .switch input:focus-visible + span { outline: 2px solid var(--ok); outline-offset: 2px; }
+  .switch input:disabled + span { opacity: 0.4; }
+
+  .editor { display: grid; grid-template-columns: 44px minmax(0, 1fr); border-bottom: 1px solid var(--border); background: var(--bg); height: 380px; }
+  .gutter { overflow: hidden; padding: 12px 0; text-align: right; color: var(--dim); font-family: var(--mono); font-size: 13px; line-height: 20px; border-right: 1px solid var(--border); user-select: none; }
+  .gutter div { padding-right: 8px; }
+  .gutter div.err { color: var(--danger); background: var(--danger-bg); }
+  .editor textarea { border: 0; outline: 0; resize: none; background: transparent; padding: 12px; font-family: var(--mono); font-size: 13px; line-height: 20px; white-space: pre; overflow: auto; tab-size: 4; width: 100%; height: 100%; }
+  .editor textarea[readonly] { color: var(--muted); }
+  .status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; font-size: 12px; flex-wrap: wrap; }
+  ul.diags { list-style: none; margin: 0; padding: 0 8px 8px; display: grid; gap: 4px; }
+  .diag { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; width: 100%; text-align: left; background: var(--danger-bg); border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent); border-radius: 8px; padding: 8px 10px; }
+  .diag .where { font-family: var(--mono); font-size: 11px; color: var(--danger); white-space: nowrap; }
+  .diag .msg { overflow-wrap: anywhere; }
+  .banner { margin: 16px 0 0; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface); display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+  .banner.bad { border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: var(--danger-bg); }
+  .banner.good { border-color: color-mix(in srgb, var(--ok) 35%, transparent); background: var(--ok-bg); }
+  .banner button { background: none; border: 0; color: var(--muted); }
+
+  details.ref { border-top: 1px solid var(--border); }
+  details.ref:first-of-type { border-top: 0; }
+  details.ref > summary { cursor: pointer; padding: 10px 16px; font-weight: 500; font-size: 13px; }
+  .ref-b { padding: 0 16px 14px; }
+  .field { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 150px) minmax(0, 1fr); gap: 4px 12px; padding: 3px 0; font-size: 12px; align-items: baseline; }
+  .field .n { font-family: var(--mono); color: var(--fg); overflow-wrap: anywhere; }
+  .field .t { font-family: var(--mono); color: var(--info); overflow-wrap: anywhere; }
+  .field .d { color: var(--muted); }
+  @media (max-width: 700px) { .field { grid-template-columns: minmax(0, 1fr); } }
+  pre.code { margin: 0; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; font-family: var(--mono); font-size: 12px; line-height: 1.6; overflow: auto; white-space: pre; }
+  .example { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border); }
+  .example:first-child { border-top: 0; }
+
+  .form { display: grid; gap: 16px; }
+  .opt { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; padding: 8px 0; }
+  .opt .t { font-weight: 500; } .opt .d { color: var(--muted); font-size: 12px; }
+  label.f { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+  input[type="number"] { background: var(--bg); border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 10px; width: 160px; color: var(--fg); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--border-strong); color: var(--muted); }
+
+  .verdict { border: 1px solid var(--border-strong); border-radius: 14px; background: var(--surface); overflow: hidden; position: relative; }
+  .verdict::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 2px; background: var(--tone); }
+  .verdict[data-outcome="VIOLATION"] { --tone: var(--danger); --tone-bg: var(--danger-bg); }
+  .verdict[data-outcome="PASS"] { --tone: var(--ok); --tone-bg: var(--ok-bg); }
+  .verdict[data-outcome="INCONCLUSIVE"] { --tone: var(--warn); --tone-bg: var(--warn-bg); }
+  .status-pill { display: inline-flex; font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: var(--tone); background: var(--tone-bg); border: 1px solid color-mix(in srgb, var(--tone) 35%, transparent); padding: 4px 10px; border-radius: 999px; }
+  .verdict h2 { font-size: 20px; letter-spacing: -0.02em; margin: 12px 0 6px; font-weight: 600; }
+  ol.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+  ol.steps li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; padding: 6px 10px; border-radius: 8px; align-items: center; }
+  ol.steps li.hit { background: var(--danger-bg); border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); }
+  ol.steps .i { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  .replays { display: grid; gap: 6px; margin-top: 12px; }
+  .replay { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+  .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border-strong); border-top-color: var(--ok); animation: spin .8s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="nav">
+    <div class="brand">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2 3 6v6c0 5 3.8 9.2 9 10 5.2-.8 9-5 9-10V6l-9-4Z" stroke="#3ee0a1" stroke-width="1.6"/><path d="m8.5 12 2.5 2.5 4.5-5" stroke="#3ee0a1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Invariant <span class="ver" id="version"></span>
+      <span class="pill" id="target-name"></span>
+    </div>
+    <div class="seg" role="tablist" aria-label="Console sections">
+      <button role="tab" id="tab-rules" aria-selected="true" aria-controls="view-rules">Rules</button>
+      <button role="tab" id="tab-run" aria-selected="false" aria-controls="view-run">Run exploration</button>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" hidden role="status"><div id="banner-body"></div><button id="banner-close" aria-label="Dismiss">✕</button></div>
+
+  <!-- ============================== RULES ============================== -->
+  <section id="view-rules" role="tabpanel" aria-labelledby="tab-rules">
+    <div class="layout">
+      <aside class="card" aria-label="Rules">
+        <div class="card-h">
+          <h2>Rules</h2>
+          <div class="row">
+            <button class="btn sm" id="new-rule">+ New rule</button>
+            <button class="btn ghost sm" id="upload-btn">Upload JSON</button>
+            <input type="file" id="upload-input" accept=".json,application/json" hidden>
+          </div>
+        </div>
+        <div class="group-label">Your rules</div>
+        <ul class="rules" id="custom-rules"></ul>
+        <div class="empty" id="custom-empty">None yet. Write one with <b>New rule</b> or upload a JSON rule file.</div>
+        <div class="group-label">Built-in</div>
+        <ul class="rules" id="builtin-rules"></ul>
+        <div class="card-b" style="border-top:1px solid var(--border)">
+          <label class="row" style="font-size:12px;color:var(--muted)"><input type="checkbox" id="import-replace"> Replace rules with the same id on upload</label>
+          <div class="row" style="margin-top:10px"><button class="btn ghost sm" id="export-btn">Export your rules as JSON</button></div>
+        </div>
+      </aside>
+
+      <div class="col">
+        <div class="card" id="editor-card">
+          <div class="card-h">
+            <div class="row" style="min-width:0">
+              <h2 id="editor-title">New rule</h2>
+              <span class="tag" id="editor-origin"></span>
+              <span class="tag warn" id="editor-dirty" hidden>unsaved</span>
+            </div>
+            <div class="row">
+              <div class="seg small" aria-label="Show definition as">
+                <button id="fmt-text" aria-pressed="true">Rule language</button>
+                <button id="fmt-json" aria-pressed="false">JSON</button>
+              </div>
+              <button class="btn ghost sm" id="validate-btn">Validate</button>
+              <button class="btn sm" id="save-btn">Save</button>
+              <button class="btn ghost sm" id="duplicate-btn">Duplicate</button>
+              <button class="btn danger sm" id="delete-btn">Delete</button>
+            </div>
+          </div>
+          <div class="editor">
+            <div class="gutter" id="gutter" aria-hidden="true"></div>
+            <textarea id="source" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Rule definition" aria-describedby="status-text"></textarea>
+          </div>
+          <div class="status">
+            <span id="status-text" class="muted" role="status" aria-live="polite">Loading…</span>
+            <span class="muted mono" id="cursor-pos"></span>
+          </div>
+          <ul class="diags" id="diags" aria-label="Problems"></ul>
+        </div>
+
+        <div class="card" aria-label="Language reference">
+          <div class="card-h"><h2>Reference</h2><span class="muted" id="schema-name" style="font-size:12px"></span></div>
+          <details class="ref" open><summary>Fields you can use</summary><div class="ref-b" id="ref-fields"></div></details>
+          <details class="ref"><summary>Observations (probes)</summary><div class="ref-b" id="ref-probes"></div></details>
+          <details class="ref"><summary>Functions</summary><div class="ref-b" id="ref-functions"></div></details>
+          <details class="ref"><summary>Syntax</summary><div class="ref-b"><pre class="code" id="ref-syntax"></pre></div></details>
+          <details class="ref"><summary>Examples</summary><div class="ref-b" id="ref-examples"></div></details>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =============================== RUN =============================== -->
+  <section id="view-run" role="tabpanel" aria-labelledby="tab-run" hidden>
+    <div class="layout">
+      <div class="card">
+        <div class="card-h"><h2>Exploration</h2></div>
+        <div class="card-b form">
+          <div>
+            <div class="muted" style="font-size:12px">Target build</div>
+            <div id="options"></div>
+            <div class="muted" style="font-size:12px" id="options-hint"></div>
+          </div>
+          <label class="f">Seed (blank for a random search)<input type="number" id="seed" value="1" step="1"></label>
+          <label class="f">Sequences to try<input type="number" id="max-examples" value="200" min="1" step="1"></label>
+          <div>
+            <div class="muted" style="font-size:12px;margin-bottom:6px">Rules that will be checked (<span id="active-count">0</span>)</div>
+            <div class="chips" id="active-rules"></div>
+          </div>
+          <div class="row"><button class="btn" id="run-btn">Run exploration</button><span id="run-busy" hidden class="row muted"><span class="spinner"></span> Exploring operation sequences…</span></div>
+        </div>
+      </div>
+      <div class="col" id="result"><div class="card"><div class="card-b muted">No run yet. Choose a build and the rules to check, then run the exploration. Every generated operation sequence is judged by every enabled rule.</div></div></div>
+    </div>
+  </section>
+</div>
+
+<script>
+"use strict";
+const $ = (sel) => document.querySelector(sel);
+
+/** Build a DOM node. Text always goes in as text, never as markup. */
+function h(tag, attrs, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === false || v == null) continue;
+    if (k === "class") node.className = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else if (k === "dataset") Object.assign(node.dataset, v);
+    else node.setAttribute(k, v === true ? "" : v);
+  }
+  for (const child of children.flat()) {
+    if (child == null || child === false) continue;
+    node.append(child.nodeType ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+
+async function api(path, body) {
+  const init = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  let response;
+  try { response = await fetch(path, init); }
+  catch (err) { throw { message: "The console server is not reachable. Is it still running?", diagnostics: [] }; }
+  let data = {};
+  try { data = await response.json(); } catch (err) { /* handled below */ }
+  if (!response.ok) throw { message: data.error || `Request failed (${response.status})`, diagnostics: data.diagnostics || [] };
+  return data;
+}
+
+const state = {
+  boot: null, rules: [],
+  key: null,            // key of the rule in the editor; null for a rule not saved yet
+  saved: "",            // source as last saved (to detect unsaved edits)
+  view: "text",         // "text" | "json"
+  check: null,          // last validation result for the editor contents
+  report: null, scan: null,
+};
+
+// ------------------------------------------------------------------ banner
+function banner(kind, message, diagnostics) {
+  const body = $("#banner-body");
+  body.replaceChildren(h("div", {}, message));
+  if (diagnostics && diagnostics.length) body.append(h("ul", { style: "margin:6px 0 0;padding-left:18px" }, diagnostics.map((d) => h("li", {}, describeWhere(d) ? h("span", { class: "mono" }, describeWhere(d) + " — ") : null, d.message))));
+  const el = $("#banner");
+  el.className = "banner " + (kind || "");
+  el.hidden = false;
+}
+$("#banner-close").addEventListener("click", () => { $("#banner").hidden = true; });
+
+function describeWhere(d) {
+  const parts = [];
+  if (d.rule) parts.push(`rule "${d.rule}"`);
+  if (d.line != null) parts.push(`line ${d.line}${d.col ? ":" + d.col : ""}`);
+  if (d.path) parts.push(d.path);
+  return parts.join(", ");
+}
+
+// ------------------------------------------------------------------- tabs
+function showTab(name) {
+  for (const tab of ["rules", "run"]) {
+    $(`#tab-${tab}`).setAttribute("aria-selected", String(tab === name));
+    $(`#view-${tab}`).hidden = tab !== name;
+  }
+  if (name === "run") renderActiveRules();
+}
+$("#tab-rules").addEventListener("click", () => showTab("rules"));
+$("#tab-run").addEventListener("click", () => showTab("run"));
+
+// -------------------------------------------------------------- rule list
+function current() { return state.rules.find((r) => r.key === state.key) || null; }
+function dirty() { return editable() && $("#source").value !== state.saved; }
+function editable() { const r = current(); return !r || r.editable; }
+
+function renderRuleList() {
+  const row = (rule) => h("li", { class: "rule", "aria-current": String(rule.key === state.key) },
+    h("label", { class: "switch", title: rule.enabled ? "Enabled: checked during exploration" : "Disabled" },
+      h("input", { type: "checkbox", checked: rule.enabled, "aria-label": `Enable rule ${rule.name}`, onchange: (e) => toggleRule(rule, e.target.checked) }), h("span", {})),
+    h("button", { class: "open", onclick: () => openRule(rule.key) },
+      h("span", { class: "nm" }, rule.name),
+      h("span", { class: "meta" },
+        rule.id && rule.id !== rule.name ? h("span", {}, rule.id) : null,
+        rule.severity ? h("span", { class: "sev", dataset: { s: rule.severity } }, rule.severity) : null,
+        rule.origin === "imported" ? h("span", { class: "tag", title: rule.filename }, "imported") : null,
+        rule.valid ? null : h("span", { class: "tag bad" }, "needs fixing"))));
+  const custom = state.rules.filter((r) => r.origin !== "builtin");
+  $("#custom-rules").replaceChildren(...custom.map(row));
+  $("#custom-empty").hidden = custom.length > 0;
+  $("#builtin-rules").replaceChildren(...state.rules.filter((r) => r.origin === "builtin").map(row));
+}
+
+async function toggleRule(rule, enabled) {
+  try { state.rules = (await api("/api/rules/enabled", { key: rule.key, enabled })).rules; }
+  catch (err) { banner("bad", err.message, err.diagnostics); }
+  renderRuleList(); renderActiveRules();
+}
+
+function confirmDiscard() { return !dirty() || window.confirm("Discard the unsaved changes to this rule?"); }
+
+function openRule(key) {
+  if (key === state.key || !confirmDiscard()) return;
+  const rule = state.rules.find((r) => r.key === key);
+  loadEditor(rule.key, rule.source, rule.source);
+}
+
+function loadEditor(key, source, saved) {
+  state.key = key; state.saved = saved; state.view = "text"; state.check = null;
+  $("#source").value = source;
+  renderEditor(); renderRuleList(); validateNow();
+}
+
+function newRule(source) {
+  if (!confirmDiscard()) return;
+  showTab("rules");
+  const text = source || state.boot.language.template;
+  loadEditor(null, text, text);
+  $("#source").focus();
+}
+$("#new-rule").addEventListener("click", () => newRule());
+
+// ----------------------------------------------------------------- editor
+function renderEditor() {
+  const rule = current();
+  const canEdit = editable();
+  const src = $("#source");
+  $("#editor-title").textContent = rule ? rule.name : "New rule";
+  $("#editor-origin").textContent = rule ? (rule.origin === "builtin" ? "built-in · read only" : rule.origin === "imported" ? `imported from ${rule.filename}` : "yours") : "not saved yet";
+  $("#editor-dirty").hidden = !dirty();
+  $("#fmt-text").setAttribute("aria-pressed", String(state.view === "text"));
+  $("#fmt-json").setAttribute("aria-pressed", String(state.view === "json"));
+  src.readOnly = !canEdit || state.view === "json";
+  $("#save-btn").hidden = !canEdit;
+  $("#save-btn").disabled = state.view === "json";
+  $("#delete-btn").hidden = !rule || !canEdit;
+  $("#duplicate-btn").textContent = rule && !canEdit ? "Duplicate to edit" : "Duplicate";
+  $("#duplicate-btn").hidden = !rule;
+  renderGutter();
+}
+
+function errorLines() {
+  const lines = new Set();
+  if (state.view === "text" && state.check) for (const d of state.check.diagnostics) if (d.line != null) lines.add(d.line);
+  return lines;
+}
+
+function renderGutter() {
+  const count = $("#source").value.split("\n").length;
+  const bad = errorLines();
+  const gutter = $("#gutter");
+  gutter.replaceChildren(...Array.from({ length: count }, (_, i) => h("div", { class: bad.has(i + 1) ? "err" : "" }, i + 1)));
+  gutter.scrollTop = $("#source").scrollTop;
+}
+
+let timer = null;
+$("#source").addEventListener("input", () => {
+  $("#editor-dirty").hidden = !dirty();
+  renderGutter();
+  clearTimeout(timer);
+  timer = setTimeout(validateNow, 350);
+});
+$("#source").addEventListener("scroll", () => { $("#gutter").scrollTop = $("#source").scrollTop; });
+$("#source").addEventListener("keydown", (e) => {
+  const el = e.target;
+  if (e.key === "Tab" && !e.shiftKey && !el.readOnly && !e.altKey && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    el.setRangeText("    ", el.selectionStart, el.selectionEnd, "end");
+    el.dispatchEvent(new Event("input"));
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); }
+});
+for (const type of ["keyup", "click", "input"]) $("#source").addEventListener(type, () => {
+  const el = $("#source");
+  const before = el.value.slice(0, el.selectionStart).split("\n");
+  $("#cursor-pos").textContent = `line ${before.length}, col ${before[before.length - 1].length + 1}`;
+});
+
+let validation = 0;
+async function validateNow() {
+  if (state.view === "json") return;
+  const source = $("#source").value;
+  const ticket = ++validation;
+  if (!source.trim()) { state.check = null; $("#status-text").textContent = "Write a rule to validate it."; $("#diags").replaceChildren(); renderGutter(); return; }
+  try {
+    const result = await api("/api/validate", { source, format: "text", key: state.key });
+    if (ticket !== validation) return;   // a newer edit is already being checked
+    state.check = result;
+  } catch (err) {
+    if (ticket !== validation) return;
+    state.check = { ok: false, rules: [], diagnostics: [{ message: err.message }] };
+  }
+  renderValidation();
+}
+$("#validate-btn").addEventListener("click", async () => { if (state.view === "json") setView("text"); await validateNow(); });
+
+function renderValidation() {
+  const check = state.check;
+  const status = $("#status-text");
+  if (check.ok) {
+    const names = check.rules.map((r) => `"${r.name}"`).join(", ");
+    status.replaceChildren(h("span", { class: "tag good" }, "valid"), ` ${check.rules.length === 1 ? "Rule" : check.rules.length + " rules"} ${names} can be run.`);
+  } else {
+    const n = check.diagnostics.length;
+    status.replaceChildren(h("span", { class: "tag bad" }, `${n} problem${n === 1 ? "" : "s"}`), " Fix these before the rule can run.");
+  }
+  $("#diags").replaceChildren(...check.diagnostics.map((d) => h("li", {},
+    h("button", { class: "diag", onclick: () => jumpTo(d), title: d.line != null ? "Go to this position" : "" },
+      h("span", { class: "where" }, d.line != null ? `${d.line}:${d.col || 1}` : (d.path || "rule")),
+      h("span", { class: "msg" }, d.message)))));
+  renderGutter();
+}
+
+function jumpTo(d) {
+  if (d.line == null || state.view !== "text") return;
+  const el = $("#source");
+  const lines = el.value.split("\n");
+  let offset = 0;
+  for (let i = 0; i < Math.min(d.line - 1, lines.length); i++) offset += lines[i].length + 1;
+  offset += Math.max(0, (d.col || 1) - 1);
+  el.focus();
+  el.setSelectionRange(offset, Math.min(offset + 1, el.value.length));
+  el.scrollTop = Math.max(0, (d.line - 4) * 20);
+}
+
+let textDraft = "";
+function setView(view) {
+  if (view === state.view) return;
+  const el = $("#source");
+  if (view === "json") {
+    if (!state.check || !state.check.ok) { banner("bad", "The JSON form is available once the rule validates."); return; }
+    textDraft = el.value;
+    const rules = state.check.rules.map((r) => r.json);
+    el.value = JSON.stringify(rules.length === 1 ? rules[0] : { version: 1, rules }, null, 2);
+    $("#status-text").textContent = "The same rule in the JSON format (read only). Upload accepts this format.";
+    $("#diags").replaceChildren();
+  } else {
+    el.value = textDraft;
+  }
+  state.view = view;
+  renderEditor();
+  if (view === "text") renderValidation();
+}
+$("#fmt-text").addEventListener("click", () => setView("text"));
+$("#fmt-json").addEventListener("click", () => setView("json"));
+
+async function save() {
+  if (!editable() || state.view === "json") return;
+  const source = $("#source").value;
+  try {
+    const out = await api("/api/rules", { source, key: state.key });
+    state.rules = out.rules;
+    const first = state.rules.find((r) => r.key === out.saved[0]);
+    loadEditor(first.key, first.source, first.source);
+    const invalid = out.saved.map((k) => state.rules.find((r) => r.key === k)).filter((r) => !r.valid);
+    if (invalid.length) banner("", "Saved as a draft. It has problems and will not run until they are fixed.");
+    else banner("good", out.saved.length > 1 ? `Saved ${out.saved.length} rules.` : `Saved "${first.name}". It is enabled and will be checked on the next run.`);
+  } catch (err) { banner("bad", err.message, err.diagnostics); }
+}
+$("#save-btn").addEventListener("click", save);
+
+$("#delete-btn").addEventListener("click", async () => {
+  const rule = current();
+  if (!rule || !window.confirm(`Delete the rule "${rule.name}"? This cannot be undone.`)) return;
+  try {
+    state.rules = (await api("/api/rules/delete", { key: rule.key })).rules;
+    loadEditor(null, state.boot.language.template, state.boot.language.template);
+    banner("good", `Deleted "${rule.name}".`);
+  } catch (err) { banner("bad", err.message, err.diagnostics); }
+});
+
+$("#duplicate-btn").addEventListener("click", () => {
+  const rule = current();
+  if (!rule || !confirmDiscard()) return;
+  const copyName = `${rule.name}-copy`;
+  let source = rule.source.replace(/^(\s*rule\s+)"[^"]*"/, `$1"${copyName}"`);
+  // A copy needs its own id: drop the explicit one so it defaults to the new name.
+  source = source.replace(/^\s*id\s+"[^"]*"\s*\n/m, "");
+  loadEditor(null, source, source);
+  $("#source").focus();
+});
+
+// ----------------------------------------------------------- import/export
+$("#upload-btn").addEventListener("click", () => $("#upload-input").click());
+$("#upload-input").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  if (file.size > 1_000_000) { banner("bad", `${file.name} is too large to be a rule file.`); return; }
+  try {
+    const out = await api("/api/rules/import", { filename: file.name, content: await file.text(), replace: $("#import-replace").checked });
+    state.rules = out.rules;
+    renderRuleList(); renderActiveRules();
+    const names = out.imported.map((k) => state.rules.find((r) => r.key === k).name);
+    banner("good", `Imported ${names.length} rule${names.length === 1 ? "" : "s"} from ${file.name}: ${names.join(", ")}.`);
+    if (!dirty()) openRule(out.imported[0]);
+  } catch (err) { banner("bad", err.message, err.diagnostics); }
+});
+
+function download(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = h("a", { href: url, download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+$("#export-btn").addEventListener("click", async () => {
+  try {
+    const doc = await api("/api/rules/export");
+    if (!doc.rules.length) { banner("", "There are no valid rules of your own to export yet."); return; }
+    download("invariant-rules.json", JSON.stringify(doc, null, 2) + "\n", "application/json");
+  } catch (err) { banner("bad", err.message); }
+});
+
+// -------------------------------------------------------------- reference
+function fieldRows(field, prefix) {
+  const path = prefix ? `${prefix}.${field.name}` : field.name;
+  const notes = [field.doc, field.optional ? "May be absent." : "", field.late ? "Known only after the response." : ""].filter(Boolean).join(" ");
+  const rows = [h("div", { class: "field" }, h("span", { class: "n" }, path), h("span", { class: "t" }, field.type), h("span", { class: "d" }, notes))];
+  const inner = field.type.startsWith("list") ? `${path}[]` : field.type.startsWith("map") ? `${path}[key]` : path;
+  for (const sub of field.fields) rows.push(...fieldRows(sub, inner));
+  return rows;
+}
+
+function renderReference() {
+  const lang = state.boot.language;
+  $("#schema-name").textContent = `${lang.schema.name} — ${lang.schema.description}`;
+  $("#ref-fields").replaceChildren(...lang.schema.roots.flatMap((root) => fieldRows(root, "")));
+  $("#ref-probes").replaceChildren(
+    h("p", { class: "muted", style: "margin:0 0 8px;font-size:12px" }, "Ask for application state after the operation with: observe name = probe(arguments)"),
+    ...(lang.schema.probes.length ? lang.schema.probes.map((p) => h("div", { class: "field" },
+      h("span", { class: "n" }, `${p.name}(${p.params.map((a) => a.name).join(", ")})`), h("span", { class: "t" }, p.returns), h("span", { class: "d" }, p.doc))) : [h("div", { class: "muted" }, "This target offers no probes.")]));
+  $("#ref-functions").replaceChildren(...lang.functions.map((f) => h("div", { class: "field" }, h("span", { class: "n" }, f.signature), h("span", {}), h("span", { class: "d" }, f.doc))));
+  $("#ref-syntax").textContent = [
+    'rule "name" {',
+    '    id "SHORT-ID"                 # optional; defaults to the name',
+    '    description "what must never happen"',
+    `    severity ${lang.severities.join(" | ")}`,
+    '    when <condition>              # which operations the rule covers (no response fields)',
+    '    let name = <expression>       # a named value',
+    '    observe name = probe(args)    # application state after the operation',
+    '    always <condition>            # must hold   (alias: assert)',
+    '    never <condition>             # must not hold',
+    '    message "text with {expressions}"',
+    '    evidence { key: <expression>, ... }',
+    '}',
+    '',
+    'operators   and  or  not  implies   ==  !=  <  <=  >  >=  in   +  -  *',
+    'access      actor.role   policy.denials["TI-2"]   events[0]',
+    'quantify    some e in events : <condition>     every … : …     none … : …',
+    'collect     [d.ref for d in state.documents where d.org != actor.org]',
+    'literals    "text"  \'text\'  42  1.5  true  false  null  [1, 2]  {key: value}',
+    '',
+    'A field that is absent is undefined. A rule whose verdict depends on an',
+    'undefined value is INCONCLUSIVE, never PASS. Use has(x), coalesce(a, b) or',
+    '"<condition> implies <requirement>" to say when a field is expected.',
+  ].join("\n");
+  $("#ref-examples").replaceChildren(...lang.examples.map((ex) => h("div", { class: "example" },
+    h("div", { class: "row", style: "justify-content:space-between" }, h("div", {}, h("b", {}, ex.title), h("div", { class: "muted", style: "font-size:12px" }, ex.description)),
+      h("button", { class: "btn ghost sm", onclick: () => newRule(ex.source) }, "Use as a starting point")),
+    h("pre", { class: "code" }, ex.source))));
+}
+
+// ------------------------------------------------------------------- run
+function renderOptions() {
+  const target = state.boot.target;
+  $("#options").replaceChildren(...target.options.map((o) => h("label", { class: "opt" },
+    h("input", { type: "checkbox", value: o.id, checked: o.id === target.options[0].id }),
+    h("span", {}, h("span", { class: "t" }, o.title), o.property ? h("span", { class: "muted mono", style: "font-size:11px" }, `  expected to trip ${o.property}`) : null, h("div", { class: "d" }, o.description)))));
+  $("#options-hint").textContent = target.options.length ? "Each switch seeds one defect. With none switched on, the build is the fixed application." : "";
+}
+
+function renderActiveRules() {
+  const active = state.rules.filter((r) => r.enabled);
+  $("#active-count").textContent = active.length;
+  $("#active-rules").replaceChildren(...(active.length ? active.map((r) => h("span", { class: "chip" + (r.valid ? "" : " tag bad"), title: r.statement }, r.id || r.name)) : [h("span", { class: "muted" }, "None. Enable a rule on the Rules tab.")]));
+}
+
+function chosenOptions() { return [...document.querySelectorAll("#options input:checked")].map((i) => i.value); }
+
+function readInt(id, label, required) {
+  const raw = $(id).value.trim();
+  if (!raw) { if (required) throw new Error(`${label} is required.`); return null; }
+  const n = Number(raw);
+  if (!Number.isInteger(n)) throw new Error(`${label} must be a whole number.`);
+  return n;
+}
+
+$("#run-btn").addEventListener("click", async () => {
+  let request;
+  try { request = { options: chosenOptions(), seed: readInt("#seed", "Seed", false), max_examples: readInt("#max-examples", "Sequences to try", true) }; }
+  catch (err) { banner("bad", err.message); return; }
+  $("#run-btn").disabled = true; $("#run-busy").hidden = false;
+  try {
+    state.scan = await api("/api/scan", request);
+    state.report = state.scan.report;
+    $("#banner").hidden = true;
+    renderResult();
+  } catch (err) { banner("bad", err.message, err.diagnostics); }
+  finally { $("#run-btn").disabled = false; $("#run-busy").hidden = true; }
+});
+
+function renderResult() {
+  const scan = state.scan, report = scan.report, f = report.finding;
+  const title = report.outcome === "PASS" ? "No violation found in the explored sequences"
+    : report.outcome === "VIOLATION" ? `${f.property_id} ${f.property_name !== f.property_id ? f.property_name + " " : ""}violated`
+    : `${f ? f.property_id : "Run"} could not be decided`;
+  const replays = h("div", { class: "replays", id: "replays" });
+  const verdict = h("div", { class: "verdict", dataset: { outcome: report.outcome } },
+    h("div", { class: "card-b" },
+      h("span", { class: "status-pill" }, report.outcome),
+      h("h2", {}, title),
+      f ? h("p", { class: "muted", style: "margin:0" }, f.statement) : null,
+      f ? h("p", { style: "margin:10px 0 0" }, h("b", {}, "Why: "), f.summary) : null,
+      h("div", { class: "row", style: "margin-top:12px" },
+        h("span", { class: "chip" }, report.target), h("span", { class: "chip" }, `${report.executions} sequences explored`),
+        h("span", { class: "chip" }, `seed ${report.seed ?? "random"}`), h("span", { class: "chip" }, `${(scan.duration_ms / 1000).toFixed(1)} s`),
+        f && f.severity ? h("span", { class: "chip sev", dataset: { s: f.severity } }, f.severity) : null,
+        report.reproduced == null ? null : h("span", { class: "tag " + (report.reproduced ? "good" : "bad") }, report.reproduced ? "reproduced on replay" : "did not reproduce")),
+      h("div", { class: "row", style: "margin-top:14px" },
+        report.scenario ? h("button", { class: "btn ghost sm", onclick: () => runReplay(scan.options) }, "Replay on this build") : null,
+        report.scenario && scan.options.length ? h("button", { class: "btn ghost sm", onclick: () => runReplay([]) }, "Replay on the fixed build") : null,
+        h("button", { class: "btn ghost sm", onclick: openViewer }, "Open full report"),
+        h("button", { class: "btn ghost sm", onclick: () => download("invariant-report.json", JSON.stringify(report, null, 2) + "\n", "application/json") }, "Download report JSON")),
+      replays,
+      h("p", { class: "muted", style: "margin:14px 0 0;font-size:12px" }, report.note)));
+  const cards = [verdict];
+  if (report.steps.length) {
+    cards.push(h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", {}, "Operation sequence"), h("span", { class: "muted mono", style: "font-size:12px" }, "minimal, replayable")),
+      h("div", { class: "card-b" }, h("ol", { class: "steps" }, report.steps.map((s, i) => h("li", { class: f && s.index === f.step_index ? "hit" : "" },
+        h("span", { class: "i" }, s.index), h("span", {}, scan.steps_text[i], s.allowed_by_policy ? null : h("span", { class: "muted" }, ` — policy: ${s.policy_reason}`)),
+        h("span", { class: "row" }, h("span", { class: "chip" }, s.status == null ? "no response" : `HTTP ${s.status}`),
+          ...s.evaluations.filter((e) => e.outcome !== "PASS").map((e) => h("span", { class: "tag " + (e.outcome === "VIOLATION" ? "bad" : "warn"), title: e.summary }, `${e.property_id} ${e.outcome}`)))))))));
+  }
+  if (f) cards.push(h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", {}, "Evidence")), h("div", { class: "card-b" }, h("pre", { class: "code" }, JSON.stringify(f.evidence, null, 2)))));
+  cards.push(h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", {}, "Rules checked on every step")), h("div", { class: "card-b chips" }, scan.rules_used.map((r) => h("span", { class: "chip sev", dataset: { s: r.severity } }, r.id)))));
+  $("#result").replaceChildren(...cards);
+}
+
+async function runReplay(options) {
+  const line = h("div", { class: "replay" }, h("span", { class: "spinner" }), "Replaying…");
+  $("#replays").append(line);
+  try {
+    const out = await api("/api/replay", { options, report: state.report });
+    line.replaceChildren(h("span", { class: "tag " + (out.outcome === "PASS" ? "good" : out.outcome === "VIOLATION" ? "bad" : "warn") }, out.outcome),
+      h("span", { class: "mono" }, out.target), h("span", { class: "muted" }, out.valid ? (out.message || `${out.steps} operations replayed, every rule held`) : "the scenario does not fit this build"));
+  } catch (err) { line.replaceChildren(h("span", { class: "tag bad" }, "error"), err.message); }
+}
+
+async function openViewer() {
+  const tab = window.open("", "_blank");   // opened in the click, before awaiting
+  try {
+    const out = await api("/api/report-html", { report: state.report });
+    const url = URL.createObjectURL(new Blob([out.html], { type: "text/html" }));
+    if (tab) tab.location = url; else download("invariant-report.html", out.html, "text/html");
+  } catch (err) { if (tab) tab.close(); banner("bad", err.message); }
+}
+
+window.addEventListener("beforeunload", (e) => { if (dirty()) { e.preventDefault(); e.returnValue = ""; } });
+
+// ------------------------------------------------------------------ start
+(async function start() {
+  try {
+    state.boot = await api("/api/bootstrap");
+  } catch (err) { banner("bad", err.message); $("#status-text").textContent = "Not connected."; return; }
+  state.rules = state.boot.rules;
+  $("#version").textContent = "v" + state.boot.version;
+  $("#target-name").textContent = "target: " + state.boot.target.name;
+  renderReference(); renderOptions(); renderActiveRules();
+  const first = state.rules.find((r) => r.origin !== "builtin");
+  if (first) loadEditor(first.key, first.source, first.source);
+  else loadEditor(null, state.boot.language.template, state.boot.language.template);
+})();
+</script>
+</body>
+</html>

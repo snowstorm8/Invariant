@@ -21,15 +21,12 @@ from invariant.core.scenario import (
     UpdateDocument,
 )
 from invariant.core.state import ModelState
+from invariant.integrations.builtin_rules import builtin_rule
 
 from .base import Property
 from .isolation import TENANT_READ_ISOLATION, TENANT_WRITE_ISOLATION
 
-ROLE_WRITE_PERMISSION = Property(
-    id="AZ-1",
-    name="role-write-permission",
-    statement="A principal must not perform a write operation that its role does not permit.",
-)
+ROLE_WRITE_PERMISSION = Property.from_rule(builtin_rule("AZ-1"))
 
 WRITE_ROLES = frozenset({Role.ADMIN, Role.MEMBER})
 DELETE_ROLES = frozenset({Role.ADMIN})

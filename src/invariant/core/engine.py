@@ -7,7 +7,7 @@ identically when replayed.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -89,6 +89,9 @@ class Engine:
         self.state = ModelState()
         self.history: list[StepRecord] = []
         self._ref_counts: dict[str, int] = {}
+        #: Record of every actor operation so far, as rules will see it in
+        #: ``events``. Built by the evaluator's binding, never by the engine.
+        self._events: list[Mapping[str, Any]] = []
         #: Why the run became invalid (an authorised write could not be verified).
         #: Terminal: only a successful ``reset()`` clears it, because the model
         #: can no longer be trusted and must not be built upon.
@@ -105,6 +108,7 @@ class Engine:
         self.state = ModelState()
         self.history = []
         self._ref_counts = {}
+        self._events = []
         self._invalid = None
 
     def close(self) -> None:
@@ -179,14 +183,18 @@ class Engine:
         # need; the engine only performs the I/O. Planning does not depend on
         # the response, so the probes are taken even if the operation itself
         # got no answer.
+        planned = Step(op, actor, decision, self.state, tuple(self._events))
         probes: dict[ProbeRequest, Observation] = {}
-        for request in self.evaluator.plan(Step(op, actor, decision, self.state)):
+        for request in self.evaluator.plan(planned):
             probe = self._run_probe(request)
             if probe is not None:
                 probes[request] = probe
 
-        step = ExecutedStep(op, actor, decision, obs, probes=probes)
+        step = ExecutedStep(op, actor, decision, obs, probes=probes, history=planned.history)
         evaluations = self.evaluator.evaluate(self.state, step)
+        # Recorded before the model is updated: later rules see this operation
+        # with the resource as it was when the operation was made.
+        self._events.append(self.evaluator.binding.event(planned, obs))
         # The model changes only for authorised operations whose effect on the
         # target has been verified; otherwise the run stops as INCONCLUSIVE.
         if decision.allowed and isinstance(op, (CreateDocument, UpdateDocument, DeleteDocument)):

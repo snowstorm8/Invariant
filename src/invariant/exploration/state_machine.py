@@ -33,6 +33,7 @@ from invariant.core.scenario import (
     Role,
     UpdateDocument,
 )
+from invariant.evaluation.evaluator import Evaluator
 from invariant.evaluation.violations import Outcome
 
 from .operations import contents, roles
@@ -53,11 +54,14 @@ def build_state_machine(
     sink: ExplorationSink,
     num_orgs: int = 2,
     strict: bool = True,
+    evaluator: Evaluator | None = None,
 ) -> type[RuleBasedStateMachine]:
     """Create a state machine class bound to a target.
 
     ``adapter_factory`` is called once per Hypothesis execution, so every
     execution starts from a fresh target; ``Engine.reset`` then verifies it.
+    ``evaluator`` carries the rules to judge every step with; the machine only
+    generates operations and never looks at them.
     """
 
     class InvariantMachine(RuleBasedStateMachine):
@@ -69,7 +73,7 @@ def build_state_machine(
             super().__init__()
             sink.executions += 1
             self._inconclusive_seen = False
-            self.engine = Engine(adapter_factory(), strict=strict)
+            self.engine = Engine(adapter_factory(), evaluator, strict=strict)
             self.engine.reset()
 
         def _apply(self, op: Operation) -> StepRecord:

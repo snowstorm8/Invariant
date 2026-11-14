@@ -24,6 +24,8 @@ class Finding(BaseModel):
     summary: str
     step_index: int
     evidence: dict[str, Any] = Field(default_factory=dict)
+    #: Severity the rule declares (critical, high, medium, low, info), if any.
+    severity: str | None = None
 
 
 class Report(BaseModel):
@@ -40,4 +42,8 @@ class Report(BaseModel):
     steps: list[StepRecord] = Field(default_factory=list)
     #: True/False if the scenario was replayed on a fresh target; None if not attempted.
     reproduced: bool | None = None
+    #: The rule set the run was judged with, in the JSON rule format, when it
+    #: was chosen explicitly. None means the integration's built-in rules.
+    #: Replaying the report re-applies exactly these rules.
+    rules: list[dict[str, Any]] | None = None
     note: str = DISCLAIMER

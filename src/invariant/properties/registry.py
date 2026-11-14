@@ -1,13 +1,18 @@
-"""All known properties, by id."""
+"""Metadata of the built-in rules, by id.
+
+This is a catalog for display and for the reference policy's denial labels. It
+is not what decides which rules are evaluated: that is the evaluator's rule set,
+which is built at run time (see ``checks.py``).
+"""
 
 from __future__ import annotations
 
-from .authorization import ROLE_WRITE_PERMISSION
+from invariant.integrations.builtin_rules import builtin_document
+
 from .base import Property
-from .isolation import TENANT_READ_ISOLATION, TENANT_WRITE_ISOLATION
 
 PROPERTIES: dict[str, Property] = {
-    p.id: p for p in (TENANT_READ_ISOLATION, TENANT_WRITE_ISOLATION, ROLE_WRITE_PERMISSION)
+    rule.id: Property.from_rule(rule) for rule in builtin_document().rules
 }
 EXECUTION = Property(
     id="EXEC",

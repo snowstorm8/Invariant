@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from importlib import resources
 from pathlib import Path
 
@@ -9,7 +10,9 @@ from invariant import __version__
 from invariant.core.engine import RunFailure
 from invariant.core.scenario import describe_op
 from invariant.evaluation.violations import Outcome
+from invariant.properties.base import Property
 from invariant.properties.registry import EXECUTION, PROPERTIES
+from invariant.rules.engine import RuleSet
 
 from .models import Finding, Report
 
@@ -21,7 +24,14 @@ def build_report(
     executions: int,
     seed: int | None,
     reproduced: bool | None,
+    properties: Mapping[str, Property] | None = None,
+    rules: RuleSet | None = None,
 ) -> Report:
+    """``properties`` is the metadata of the rules the run was judged with
+    (default: the built-in ones); ``rules`` is embedded so the report replays
+    with the same rule set."""
+    catalog = PROPERTIES if properties is None else properties
+    embedded = rules.to_json()["rules"] if rules is not None else None
     if failure is None:
         return Report(
             tool_version=__version__,
@@ -29,6 +39,7 @@ def build_report(
             outcome=Outcome.PASS,
             executions=executions,
             seed=seed,
+            rules=embedded,
         )
     record = failure.record
     evaluation = next(
@@ -37,7 +48,7 @@ def build_report(
         if e.outcome in (Outcome.VIOLATION, Outcome.INCONCLUSIVE)
         and (e.outcome is Outcome.VIOLATION or record.outcome is not Outcome.VIOLATION)
     )
-    prop = PROPERTIES.get(evaluation.property_id, EXECUTION)
+    prop = catalog.get(evaluation.property_id, EXECUTION)
     return Report(
         tool_version=__version__,
         target=target,
@@ -52,10 +63,12 @@ def build_report(
             summary=evaluation.summary,
             step_index=record.index,
             evidence=evaluation.evidence,
+            severity=prop.severity,
         ),
         scenario=failure.scenario,
         steps=failure.history,
         reproduced=reproduced,
+        rules=embedded,
     )
 
 
@@ -98,7 +111,8 @@ def render_text(report: Report) -> str:
     f = report.finding
     lines += [
         "",
-        f"{f.outcome}: {f.property_id} {f.property_name}",
+        f"{f.outcome}: {f.property_id} {f.property_name}"
+        + (f"  [severity: {f.severity}]" if f.severity else ""),
         f"  Property: {f.statement}",
         f"  Finding : {f.summary}",
         "",

@@ -14,6 +14,7 @@ from collections.abc import Callable
 from invariant.adapters.base import Adapter
 from invariant.core.engine import PropertyViolationError
 from invariant.core.scenario import Scenario
+from invariant.evaluation.evaluator import Evaluator
 
 from .reproduction import ReplayResult, replay
 
@@ -36,13 +37,14 @@ def minimize(
     *,
     property_id: str,
     strict: bool = True,
+    evaluator: Evaluator | None = None,
 ) -> tuple[Scenario, ReplayResult]:
     """Return a scenario no operation of which can be removed, plus its replay.
 
     The result is 1-minimal (not necessarily globally minimal). If ``scenario``
     does not reproduce on replay, it is returned unchanged with that result.
     """
-    best = replay(scenario, adapter_factory, strict=strict)
+    best = replay(scenario, adapter_factory, strict=strict, evaluator=evaluator)
     if not violates(best, property_id):
         return scenario, best
     ops = list(scenario.operations)
@@ -51,7 +53,9 @@ def minimize(
         changed = False
         for i in reversed(range(len(ops))):
             candidate = ops[:i] + ops[i + 1 :]
-            result = replay(Scenario(operations=candidate), adapter_factory, strict=strict)
+            result = replay(
+                Scenario(operations=candidate), adapter_factory, strict=strict, evaluator=evaluator
+            )
             if violates(result, property_id):
                 ops, best, changed = candidate, result, True
     return Scenario(operations=ops), best
