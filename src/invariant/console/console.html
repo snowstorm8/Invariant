@@ -102,6 +102,14 @@
   .ac .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ac .lbl b { color: var(--ok); font-weight: 600; }
   .ac .det { grid-column: 2; color: var(--muted); font-family: var(--sans); font-size: 11px; white-space: normal; }
+  .editor.drop { outline: 2px dashed var(--ok); outline-offset: -4px; }
+  dialog { background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 12px; padding: 0; width: min(460px, calc(100% - 32px)); }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+  dialog .d-h { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; }
+  dialog table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  dialog td { padding: 6px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  dialog td:first-child { white-space: nowrap; }
+  kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface-2); }
   .ac .foot { padding: 4px 8px 2px; color: var(--dim); font-family: var(--sans); font-size: 10px; }
   .status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; font-size: 12px; flex-wrap: wrap; }
   ul.diags { list-style: none; margin: 0; padding: 0 8px 8px; display: grid; gap: 4px; }
@@ -229,6 +237,7 @@
             <span class="sep"></span>
             <button class="btn ghost sm" data-act="download" title="Download the definition as a file">Download</button>
             <button class="btn danger sm" data-act="clear" data-write title="Remove all text (can be undone with Undo)">Clear</button>
+            <button class="btn ghost sm" data-act="help" title="Keyboard shortcuts (?)">?</button>
             <span class="note" id="tool-note" role="status" aria-live="polite">Ctrl+Space: suggestions</span>
           </div>
           <div class="editor" id="editor-box">
@@ -279,6 +288,20 @@
     </div>
   </section>
 </div>
+
+<dialog id="shortcuts" aria-labelledby="shortcuts-title">
+  <div class="d-h"><span id="shortcuts-title">Keyboard shortcuts</span><button class="btn ghost sm" id="shortcuts-close">Close</button></div>
+  <table>
+    <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>S</kbd></td><td>Save the rule</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>Space</kbd> or <kbd>Alt</kbd> + <kbd>/</kbd></td><td>Show suggestions</td></tr>
+    <tr><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>Enter</kbd> <kbd>Tab</kbd> <kbd>Esc</kbd></td><td>Choose, insert or close a suggestion</td></tr>
+    <tr><td><kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd></td><td>Indent / outdent (all selected lines)</td></tr>
+    <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>/</kbd></td><td>Comment or uncomment lines</td></tr>
+    <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Z</kbd> / <kbd>Shift</kbd> + <kbd>Z</kbd></td><td>Undo / redo</td></tr>
+    <tr><td><kbd>?</kbd></td><td>Open this list (when not typing in a field)</td></tr>
+  </table>
+  <div class="card-b muted" style="font-size:12px">You can also drop a <b>.json</b> rule file (imported) or a <b>.rules</b> / text file (loaded into the editor) onto the editor. Unsaved edits are kept as a draft in this browser.</div>
+</dialog>
 
 <script>
 "use strict";
@@ -379,7 +402,12 @@ async function toggleRule(rule, enabled) {
   renderRuleList(); renderActiveRules();
 }
 
-function confirmDiscard() { return !dirty() || window.confirm("Discard the unsaved changes to this rule?"); }
+function confirmDiscard() {
+  if (!dirty()) return true;
+  if (!window.confirm("Discard the unsaved changes to this rule?")) return false;
+  clearDraft(state.key);
+  return true;
+}
 
 function openRule(key) {
   if (key === state.key || !confirmDiscard()) return;
@@ -390,7 +418,12 @@ function openRule(key) {
 function loadEditor(key, source, saved) {
   state.key = key; state.saved = saved; state.view = "text"; state.check = null;
   $("#source").value = source;
+  const rule = state.rules.find((r) => r.key === key);
+  const draft = rule && !rule.editable ? null : readDraft(key);
+  const restored = draft && typeof draft.text === "string" && draft.base === saved && draft.text !== saved;
+  if (restored) $("#source").value = draft.text;
   renderEditor(); renderRuleList(); validateNow();
+  if (restored) banner("", "Restored your unsaved edits from this browser. Save to keep them.");
 }
 
 function newRule(source) {
@@ -575,6 +608,7 @@ async function toolAction(act) {
       try { const text = await navigator.clipboard.readText(); el.focus(); insertText(text); flash("Pasted"); }
       catch (err) { el.focus(); flash("The browser blocked clipboard access. Press Ctrl/⌘+V instead."); }
       break;
+    case "help": $("#shortcuts").showModal(); break;
     case "comment": el.focus(); toggleComment(); break;
     case "clear":
       if (!el.value) break;
@@ -863,6 +897,51 @@ $("#source").addEventListener("blur", acClose);
 $("#source").addEventListener("scroll", acClose);
 $("#source").addEventListener("mousedown", acClose);
 
+// ------------------------------------------------------------ drafts, drop, help
+const DRAFT_PREFIX = "invariant.draft.";
+function draftKey(key) { return DRAFT_PREFIX + (key == null ? "new" : key); }
+function readDraft(key) { try { return JSON.parse(localStorage.getItem(draftKey(key))); } catch (err) { return null; } }
+function writeDraft(key, text, base) { try { localStorage.setItem(draftKey(key), JSON.stringify({ text, base })); } catch (err) { /* storage unavailable */ } }
+function clearDraft(key) { try { localStorage.removeItem(draftKey(key)); } catch (err) { /* storage unavailable */ } }
+
+let draftTimer = null;
+$("#source").addEventListener("input", () => {
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => {
+    if (state.view !== "text" || $("#source").readOnly) return;
+    if (dirty()) writeDraft(state.key, $("#source").value, state.saved); else clearDraft(state.key);
+  }, 400);
+});
+
+const box = $("#editor-box");
+for (const type of ["dragenter", "dragover"]) box.addEventListener(type, (e) => {
+  if (![...(e.dataTransfer?.types || [])].includes("Files")) return;
+  e.preventDefault(); box.classList.add("drop");
+});
+box.addEventListener("dragleave", (e) => { if (!box.contains(e.relatedTarget)) box.classList.remove("drop"); });
+box.addEventListener("drop", async (e) => {
+  e.preventDefault(); box.classList.remove("drop");
+  const file = e.dataTransfer?.files?.[0];
+  if (!file) return;
+  if (file.size > 1_000_000) { banner("bad", `${file.name} is too large to be a rule file.`); return; }
+  if (/\.json$/i.test(file.name)) { importFile(file); return; }
+  if ($("#source").readOnly) { banner("", "This rule is read only. Use Duplicate to edit a copy, then drop the file."); return; }
+  if (!confirmDiscard()) return;
+  const el = $("#source");
+  el.focus(); el.select();
+  insertText(await file.text());
+  flash(`Loaded ${file.name}`);
+});
+
+$("#shortcuts-close").addEventListener("click", () => $("#shortcuts").close());
+document.addEventListener("keydown", (e) => {
+  const t = e.target;
+  if (e.key !== "?" || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;
+  e.preventDefault();
+  if (!$("#shortcuts").open) $("#shortcuts").showModal();
+});
+
 let validation = 0;
 async function validateNow() {
   if (state.view === "json") return;
@@ -936,6 +1015,7 @@ async function save() {
   const source = $("#source").value;
   try {
     const out = await api("/api/rules", { source, key: state.key });
+    clearDraft(state.key);
     state.rules = out.rules;
     const first = state.rules.find((r) => r.key === out.saved[0]);
     loadEditor(first.key, first.source, first.source);
@@ -951,6 +1031,7 @@ $("#delete-btn").addEventListener("click", async () => {
   if (!rule || !window.confirm(`Delete the rule "${rule.name}"? This cannot be undone.`)) return;
   try {
     state.rules = (await api("/api/rules/delete", { key: rule.key })).rules;
+    clearDraft(rule.key);
     loadEditor(null, state.boot.language.template, state.boot.language.template);
     banner("good", `Deleted "${rule.name}".`);
   } catch (err) { banner("bad", err.message, err.diagnostics); }
@@ -969,10 +1050,13 @@ $("#duplicate-btn").addEventListener("click", () => {
 
 // ----------------------------------------------------------- import/export
 $("#upload-btn").addEventListener("click", () => $("#upload-input").click());
-$("#upload-input").addEventListener("change", async (e) => {
+$("#upload-input").addEventListener("change", (e) => {
   const file = e.target.files[0];
   e.target.value = "";
-  if (!file) return;
+  if (file) importFile(file);
+});
+
+async function importFile(file) {
   if (file.size > 1_000_000) { banner("bad", `${file.name} is too large to be a rule file.`); return; }
   try {
     const out = await api("/api/rules/import", { filename: file.name, content: await file.text(), replace: $("#import-replace").checked });
@@ -982,7 +1066,7 @@ $("#upload-input").addEventListener("change", async (e) => {
     banner("good", `Imported ${names.length} rule${names.length === 1 ? "" : "s"} from ${file.name}: ${names.join(", ")}.`);
     if (!dirty()) openRule(out.imported[0]);
   } catch (err) { banner("bad", err.message, err.diagnostics); }
-});
+}
 
 function download(name, text, type) {
   const url = URL.createObjectURL(new Blob([text], { type }));
