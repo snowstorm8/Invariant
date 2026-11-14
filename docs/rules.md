@@ -22,7 +22,9 @@ rule "read-returns-own-tenant" {
 | Clause | Meaning |
 |---|---|
 | `rule "name" { ... }` | Name: 1-64 letters, digits, `.`, `_`, `-`. |
-| `id "X"` | Id used in reports. Defaults to the name. Must be unique. |
+| `id "X"` | Id used in reports. Must be unique. Without it the console assigns one of the form `AA-11` derived from the name (see [Rule ids](#rule-ids)); the command line uses the name. |
+| `tags "a", "b"` | Labels (lower-case letters, digits, `_ . -`; up to 12). The console groups, filters and bulk-switches rules by tag; the first tag is the group. They never affect a verdict. |
+| `policy "KEY"` | The reference policy's name for this rule, when it differs from `id`. The core rules read `policy.denials["TI-2"]`; that key stays put when the rule's id is renamed. Omit it unless the policy names the rule. |
 | `description "..."` | What must never happen, in words. Shown in reports. |
 | `severity critical\|high\|medium\|low\|info` | Default `medium`. |
 | `when <condition>` | Which operations the rule covers. Decided *before* the response, so it cannot use `response` or an observation. Omit it to cover every operation. |
@@ -62,8 +64,19 @@ That is decided by the integration, not the language. Each integration publishes
 For the document SaaS (`integrations/document_saas.py`): `operation` (type, inputs), `actor`
 (identity, role, permissions), `resource` (the targeted document as the model expects it),
 `policy` (the reference policy's ruling), `state` (expected application state), `events` (earlier
-operations of the run with their responses), `response` (status, body, decoded JSON), and the probe
-`org_documents(org)`.
+operations of the run with their responses), `response` (status, body, decoded JSON, **headers**,
+**cookies**, and the **request** it answers), and the probe `org_documents(org)`.
+
+`response.headers` is a map by lower-case name; a header that was not sent is undefined, so test it
+with `has(...)` or `coalesce(...)`:
+
+```
+always lower(coalesce(response.headers["x-content-type-options"], "")) == "nosniff"
+always every c in response.cookies : c.http_only and c.secure
+```
+
+Each cookie has `name`, `secure`, `http_only`, `same_site` (lower-case, empty if absent), `path`,
+`domain`, `persistent` and `raw`.
 
 Sequences are expressed over `events`:
 
@@ -105,3 +118,41 @@ The console's *JSON* view shows any valid rule in this format.
 - **Python**: `explore(factory, rules=RuleSet.from_text(source, SCHEMA))`.
 
 A report records the rule set it was judged with; `replay` re-applies exactly those rules.
+
+## Rule ids
+
+A rule written without an `id` is given one in the form `AA-11` (two letters, a dash, two digits)
+derived from its **name** alone, so the same name always gives the same id. The console's
+**Settings** tab chooses the algorithm, with a preview of what each would rename:
+
+| Algorithm | Letters | Digits | `tenant-read-isolation` |
+|---|---|---|---|
+| `initials` (default) | first letters of the first two words | letter count of the name | `TR-19` |
+| `consonants` | first two consonants | sum of letter values | `TN-16` |
+| `edges` | first letter of the first and last word | position-weighted checksum | `TI-55` |
+| `crc32` | from a CRC-32 of the name | from the same CRC-32 | `BS-94` |
+| `sha256` | from a SHA-256 of the name | from the same SHA-256 | `LR-29` |
+
+If the id is taken, the next free one after it is used (counting through the digits, then the
+letters). **Saving** a choice renames *every* rule to match, built-in ones included: the console
+shows the old and the new id first. Applying the same algorithm again changes nothing. A built-in
+rule keeps its shipped id as its key and as its `policy` key, so the reference policy, saved
+switches and replay are unaffected; only the id shown in findings changes. Reports saved earlier
+keep the ids they were made with. The code is `rules/ids.py`.
+
+## The default rule library
+
+`integrations/web_defaults.rules` ships 26 rules for web applications next to the three core ones,
+all enabled in the console and grouped by their first tag:
+
+| Group | Ids | What they check |
+|---|---|---|
+| `access-control` | AC-1 to AC-7 | cross-tenant reads and writes are refused, viewers cannot write, only admins delete, reads and listings stay in the caller's tenant, deleted documents stay gone |
+| `data-exposure` | DX-1 to DX-3 | no credentials in responses, no stack traces or database detail in errors, refusals do not reveal that a document exists or who owns it |
+| `headers` | TH-1 to TH-11 | nosniff, no-store, framing, referrer policy, CSP, no technology banner, no wildcard CORS with credentials, cookies are HttpOnly / Secure / SameSite, JSON is served as JSON |
+| `integrity` | IR-1 to IR-5 | no server errors, refused writes change nothing, update bumps the version by one, reads and listings match the model |
+
+Each must hold on the fixed demo build, so a failure means the application is wrong. The demo
+app's `missing-security-headers` and `verbose-errors` switches exist to show the header and
+data-exposure rules firing. From the command line the library is opt-in: `--library` (the console
+turns it on).

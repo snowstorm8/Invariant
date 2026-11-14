@@ -26,7 +26,7 @@ from invariant.analysis.reproduction import replay
 from invariant.evaluation.evaluator import evaluator_for_report
 from invariant.evaluation.violations import Outcome
 from invariant.exploration.runner import explore
-from invariant.integrations.builtin_rules import builtin_document
+from invariant.integrations.builtin_rules import builtin_document, library_document
 from invariant.integrations.document_saas import SCHEMA
 from invariant.rules import jsonio
 from invariant.rules.engine import RuleSet
@@ -62,14 +62,17 @@ def load_factory(spec: str, app_dir: Path) -> Callable[[], Adapter]:
     return factory  # type: ignore[no-any-return]
 
 
-def load_rules(paths: list[Path], *, builtin: bool) -> RuleSet | None:
+def load_rules(paths: list[Path], *, builtin: bool, library: bool = False) -> RuleSet | None:
     """Rules from files (``.json``: the JSON format; anything else: rule-language text).
 
     None when nothing was asked for, which selects the built-in rules.
+    ``library`` adds the default web-application rule library.
     """
-    if not paths and builtin:
+    if not paths and builtin and not library:
         return None
     rules: list[Rule] = list(builtin_document().rules) if builtin else []
+    if library:
+        rules += library_document().rules
     try:
         for path in paths:
             text = path.read_text("utf-8")
@@ -106,6 +109,13 @@ def explore_cmd(
     builtin: Annotated[
         bool, typer.Option("--builtin/--no-builtin", help="Include the built-in rules.")
     ] = True,
+    library: Annotated[
+        bool,
+        typer.Option(
+            "--library/--no-library",
+            help="Also check the default web-application rule library (the console enables it).",
+        ),
+    ] = False,
 ) -> None:
     """Search for security-property violations against TARGET (local targets only)."""
     factory = load_factory(target, app_dir)
@@ -114,7 +124,7 @@ def explore_cmd(
         target=target,
         seed=seed,
         max_examples=max_examples,
-        rules=load_rules(rules or [], builtin=builtin),
+        rules=load_rules(rules or [], builtin=builtin, library=library),
     )
     typer.echo(render_text(result.report))
     if report is not None:

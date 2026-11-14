@@ -125,6 +125,10 @@ def format_rule(rule: Rule) -> str:
     lines = [f"rule {quote(rule.name)} {{"]
     if rule.id != rule.name:
         lines.append(f"    id {quote(rule.id)}")
+    if rule.policy is not None:
+        lines.append(f"    policy {quote(rule.policy)}")
+    if rule.tags:
+        lines.append("    tags " + ", ".join(quote(t) for t in rule.tags))
     if rule.description:
         lines.append(f"    description {quote(rule.description)}")
     lines.append(f"    severity {rule.severity}")

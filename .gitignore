@@ -9,3 +9,6 @@ build/
 *.report.json
 report.*
 .invariant/
+
+# Rule files authored for trying things out (the shipped rules live in src/invariant/integrations/)
+examples/*/rules/

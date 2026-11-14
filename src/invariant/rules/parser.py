@@ -55,7 +55,7 @@ RESERVED = frozenset(
 )
 #: Words that start a clause inside a rule body.
 CLAUSES = (
-    "id", "description", "severity", "when", "let", "observe",
+    "id", "tags", "policy", "description", "severity", "when", "let", "observe",
     "always", "assert", "never", "message", "pass_message", "evidence",
 )  # fmt: skip
 COMPARISONS = ("==", "!=", "<", "<=", ">", ">=")
@@ -162,6 +162,8 @@ class Parser:
         name = str(self.expect_string("the rule name").value)
         self.expect_punct("{", "to open the rule body")
         rule_id: str | None = None
+        policy: str | None = None
+        tags: list[str] = []
         description: str | None = None
         severity: str | None = None
         when: Expr | None = None
@@ -192,6 +194,14 @@ class Parser:
                 case "id":
                     once(token)
                     rule_id = str(self.expect_string("the rule id").value)
+                case "policy":
+                    once(token)
+                    policy = str(self.expect_string("the policy key").value)
+                case "tags":
+                    once(token)
+                    tags.append(str(self.expect_string("a tag").value))
+                    while self.eat_punct(","):
+                        tags.append(str(self.expect_string("a tag").value))
                 case "description":
                     once(token)
                     description = str(self.expect_string("the description").value)
@@ -251,6 +261,8 @@ class Parser:
             message=message,
             pass_message=pass_message,
             evidence=evidence,
+            tags=tuple(tags),
+            policy=policy,
             loc=self.loc(start),
         )
 

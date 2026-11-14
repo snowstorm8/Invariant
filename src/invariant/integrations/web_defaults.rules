@@ -1,0 +1,301 @@
+# Default rule library for web applications, written for the document SaaS context.
+#
+# These are ordinary rules in Invariant's rule language, loaded exactly like a rule a
+# developer writes in the console; the console lists them as built-in, grouped by tag.
+# Every rule here must hold on the fixed demo build, so a failure means the application
+# under test is wrong, not the rule.
+#
+# Groups (tags):
+#   access-control  who may read, change or delete what          (AC-n)
+#   data-exposure   what a response gives away                   (DX-n)
+#   headers         browser hardening headers and cookies        (TH-n)
+#   integrity       the application does what the model expects  (IR-n)
+#
+# Scope: black-box checks of an HTTP application as a browser or API client sees it.
+
+# ---------------------------------------------------------------------------
+# Access control
+# ---------------------------------------------------------------------------
+
+rule "cross-tenant-read-denied" {
+    id "AC-1"
+    tags "access-control", "tenancy"
+    description "Reading another organization's document must be refused."
+    severity critical
+    when operation.type == "read_document" and has(resource) and resource.org != actor.org
+    never response.status < 300
+    message "{actor.ref} ({actor.org}) was answered {response.status} for {resource.ref}, owned by {resource.org}"
+}
+
+rule "cross-tenant-write-denied" {
+    id "AC-2"
+    tags "access-control", "tenancy"
+    description "Updating or deleting another organization's document must be refused."
+    severity critical
+    when operation.is_write and has(resource) and resource.org != actor.org
+    never response.status < 300
+    message "{actor.ref} ({actor.org}) was answered {response.status} for a {operation.type} of {resource.ref}, owned by {resource.org}"
+}
+
+rule "viewer-cannot-write" {
+    id "AC-3"
+    tags "access-control", "roles"
+    description "A viewer must not create, update or delete documents."
+    severity high
+    when operation.is_write and actor.role == "viewer"
+    never response.status < 300
+    message "viewer {actor.ref} was answered {response.status} for a {operation.type}"
+}
+
+rule "only-admins-delete" {
+    id "AC-4"
+    tags "access-control", "roles"
+    description "Only an admin may delete a document, even in the member's own organization."
+    severity high
+    when operation.type == "delete_document" and actor.role != "admin"
+    never response.status < 300
+    message "{actor.role} {actor.ref} was answered {response.status} for a delete"
+}
+
+rule "read-returns-own-tenant" {
+    id "AC-5"
+    tags "access-control", "tenancy"
+    description "A successful read returns a document of the reader's own organization."
+    severity critical
+    when operation.type == "read_document"
+    always response.status == 200 implies response.json.org_id == actor.org_id
+    message "{actor.ref} ({actor.org}) was served a document owned by {response.json.org_id}"
+}
+
+rule "listing-is-tenant-scoped" {
+    id "AC-6"
+    tags "access-control", "tenancy"
+    description "A listing contains only documents of the caller's organization."
+    severity critical
+    when operation.type == "list_documents"
+    always response.status == 200 implies
+        none d in response.json : d.org_id != actor.org_id
+    message "the listing for {actor.ref} ({actor.org}) contains another organization's documents"
+}
+
+rule "deleted-documents-stay-gone" {
+    id "AC-7"
+    tags "access-control", "state"
+    description "Once a document was deleted, no later read of it may succeed."
+    severity high
+    when operation.type == "read_document"
+        and some e in events :
+            e.operation.type == "delete_document"
+            and e.operation.target == operation.target
+            and e.policy.allowed and e.response.status < 300
+    never response.status < 300 or contains(response.body, resource.marker)
+    message "{operation.target} was deleted earlier, yet a read answered {response.status}"
+}
+
+# ---------------------------------------------------------------------------
+# Data exposure
+# ---------------------------------------------------------------------------
+
+rule "no-credentials-in-responses" {
+    id "DX-1"
+    tags "data-exposure", "secrets"
+    description "Responses to a user's requests never carry tokens, passwords or secrets."
+    severity critical
+    never has(response.json.token) or has(response.json.password)
+        or has(response.json.secret) or has(response.json.api_key)
+    message "a response carried a credential-like field"
+}
+
+rule "errors-reveal-no-internals" {
+    id "DX-2"
+    tags "data-exposure", "errors"
+    description "Error responses carry no stack trace, source path or database detail."
+    severity medium
+    never response.status >= 400 and (
+        contains(lower(response.body), "traceback")
+        or contains(lower(response.body), "stack trace")
+        or contains(lower(response.body), "sqlstate")
+        or contains(lower(response.body), "syntax error")
+        or contains(response.body, "File \"")
+    )
+    message "an error response ({response.status}) exposed internals: {response.excerpt}"
+}
+
+rule "refusals-do-not-reveal-existence" {
+    id "DX-3"
+    tags "data-exposure", "errors", "enumeration"
+    description "Asking for another organization's document is answered like asking for one that does not exist, without naming its owner."
+    severity medium
+    when operation.type != "create_document" and operation.type != "list_documents"
+        and has(resource) and resource.org != actor.org
+    never response.status == 403 or contains(response.body, coalesce(resource.org_id, "-"))
+    message "{actor.ref} learned that {resource.ref} exists (status {response.status}): {response.excerpt}"
+}
+
+# ---------------------------------------------------------------------------
+# Headers and cookies
+# ---------------------------------------------------------------------------
+
+rule "content-type-sniffing-disabled" {
+    id "TH-1"
+    tags "headers"
+    description "Responses send X-Content-Type-Options: nosniff."
+    severity medium
+    always lower(coalesce(response.headers["x-content-type-options"], "")) == "nosniff"
+    message "X-Content-Type-Options is '{coalesce(response.headers[\"x-content-type-options\"], \"missing\")}'"
+}
+
+rule "responses-are-not-cached" {
+    id "TH-2"
+    tags "headers", "caching"
+    description "Authenticated responses are not stored by browsers or shared caches (Cache-Control: no-store)."
+    severity medium
+    always contains(lower(coalesce(response.headers["cache-control"], "")), "no-store")
+    message "Cache-Control is '{coalesce(response.headers[\"cache-control\"], \"missing\")}'"
+}
+
+rule "framing-is-restricted" {
+    id "TH-3"
+    tags "headers", "clickjacking"
+    description "Responses forbid being framed by other sites (X-Frame-Options or CSP frame-ancestors)."
+    severity medium
+    always has(response.headers["x-frame-options"])
+        or contains(lower(coalesce(response.headers["content-security-policy"], "")), "frame-ancestors")
+    message "neither X-Frame-Options nor a CSP frame-ancestors directive was sent"
+}
+
+rule "referrer-policy-set" {
+    id "TH-4"
+    tags "headers", "privacy"
+    description "Responses set a Referrer-Policy."
+    severity low
+    always has(response.headers["referrer-policy"])
+    message "Referrer-Policy was not sent"
+}
+
+rule "content-security-policy-set" {
+    id "TH-5"
+    tags "headers", "xss"
+    description "Responses send a Content-Security-Policy."
+    severity medium
+    always has(response.headers["content-security-policy"])
+    message "Content-Security-Policy was not sent"
+}
+
+rule "no-technology-banner" {
+    id "TH-6"
+    tags "headers", "fingerprinting"
+    description "Responses do not announce server software and versions (Server with a version, X-Powered-By)."
+    severity low
+    never has(response.headers["x-powered-by"])
+        or contains(coalesce(response.headers["server"], ""), "/")
+    message "response announces its stack: server='{coalesce(response.headers[\"server\"], \"\")}' x-powered-by='{coalesce(response.headers[\"x-powered-by\"], \"\")}'"
+}
+
+rule "cors-never-wildcard-with-credentials" {
+    id "TH-7"
+    tags "headers", "cors"
+    description "CORS never allows any origin together with credentials."
+    severity high
+    never coalesce(response.headers["access-control-allow-origin"], "") == "*"
+        and lower(coalesce(response.headers["access-control-allow-credentials"], "")) == "true"
+    message "Access-Control-Allow-Origin: * together with Allow-Credentials: true"
+}
+
+rule "cookies-are-http-only" {
+    id "TH-8"
+    tags "headers", "cookies"
+    description "Every cookie a response sets is HttpOnly, out of reach of page scripts."
+    severity high
+    always every c in response.cookies : c.http_only
+    message "cookies without HttpOnly: {join([c.name for c in response.cookies where not c.http_only], ', ')}"
+}
+
+rule "cookies-are-secure" {
+    id "TH-9"
+    tags "headers", "cookies"
+    description "Every cookie a response sets is Secure, so it is never sent over plain HTTP."
+    severity high
+    always every c in response.cookies : c.secure
+    message "cookies without Secure: {join([c.name for c in response.cookies where not c.secure], ', ')}"
+}
+
+rule "cookies-have-samesite" {
+    id "TH-10"
+    tags "headers", "cookies", "csrf"
+    description "Every cookie a response sets declares SameSite=Lax or Strict."
+    severity medium
+    always every c in response.cookies : c.same_site == "lax" or c.same_site == "strict"
+    message "cookies without SameSite=Lax/Strict: {join([c.name for c in response.cookies where not (c.same_site == \"lax\" or c.same_site == \"strict\")], ', ')}"
+}
+
+rule "json-declares-its-content-type" {
+    id "TH-11"
+    tags "headers", "content-type"
+    description "A JSON body is served as application/json, never as something a browser may render."
+    severity medium
+    always has(response.json) implies
+        startswith(lower(coalesce(response.headers["content-type"], "")), "application/json")
+    message "a JSON body was served as '{coalesce(response.headers[\"content-type\"], \"no content type\")}'"
+}
+
+# ---------------------------------------------------------------------------
+# Integrity and robustness
+# ---------------------------------------------------------------------------
+
+rule "requests-never-crash-the-server" {
+    id "IR-1"
+    tags "integrity", "robustness"
+    description "Well-formed requests from a legitimate user never cause a server error."
+    severity high
+    never response.status >= 500
+    message "{operation.type} by {actor.ref} caused a server error ({response.status})"
+}
+
+rule "refused-writes-change-nothing" {
+    id "IR-2"
+    tags "integrity", "state"
+    description "A write the policy forbids leaves every document of the affected organization as the model expects it."
+    severity critical
+    when operation.is_write and not policy.allowed
+    let org = coalesce(resource.org, actor.org)
+    observe listing = org_documents(org)
+    let differences = diff(state.expected_listing[org], listing)
+    never count(differences) > 0
+    message "a refused {operation.type} changed {org}: {join(differences, '; ')}"
+    pass_message "state of {org} unchanged after a refused {operation.type}"
+}
+
+rule "update-advances-the-version-by-one" {
+    id "IR-3"
+    tags "integrity", "state"
+    description "An authorised update returns the document at the next version."
+    severity medium
+    when operation.type == "update_document" and policy.allowed and has(resource) and not resource.deleted
+    always response.status == 200 implies response.json.version == resource.version + 1
+    message "{resource.ref} was at version {resource.version}; the update answered version {response.json.version}"
+}
+
+rule "read-returns-the-expected-document" {
+    id "IR-4"
+    tags "integrity", "state"
+    description "A read in the owner's organization returns the content and version that authorised writes produced."
+    severity high
+    when operation.type == "read_document" and has(resource) and resource.org == actor.org and not resource.deleted
+    always response.status == 200 implies
+        (response.json.version == resource.version and response.json.content == resource.content)
+    message "{resource.ref} should be at version {resource.version}, got version {response.json.version}"
+}
+
+rule "listing-matches-expected-state" {
+    id "IR-5"
+    tags "integrity", "state"
+    description "A listing contains exactly the documents authorised writes left in the organization."
+    severity high
+    when operation.type == "list_documents"
+    let expected = state.expected_listing[actor.org]
+    always response.status == 200 implies
+        (count(response.json) == count(keys(expected))
+            and every d in response.json : has(expected[d.id]))
+    message "the listing for {actor.org} has {count(response.json)} documents, the model expects {count(keys(expected))}"
+}

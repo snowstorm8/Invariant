@@ -15,7 +15,9 @@ Property-based testing of security invariants (authorization / tenant isolation)
   (`properties/checks.py`), run by `evaluation/`, and must be deterministic and pure: properties do
   no I/O and declare the probes they need via `requires`. No LLM in the evaluation path.
 - Every property is a rule in the rule language (`docs/rules.md`), interpreted by `rules/`. The
-  built-ins live in `integrations/document_saas.rules`; do not add Python property classes.
+  core built-ins live in `integrations/document_saas.rules`, the default web-application library in
+  `integrations/web_defaults.rules`; do not add Python property classes. A rule's `id` is what reports
+  show; the policy's name for it is its `policy` key (`rules/ids.py` derives `AA-11` ids from names).
 - `rules/` is application-agnostic: it must not import `core/`, `properties/`, `adapters/` or
   `integrations/`. What rules can see comes from a `RuleBinding` + `ContextSchema` in `integrations/`.
 - Never `eval`/`exec` rule content. New rule functions go in the closed table `rules/functions.py`.

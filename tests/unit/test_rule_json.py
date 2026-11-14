@@ -233,3 +233,80 @@ def test_json_nesting_is_bounded():
         deep = {"not": deep}
     with pytest.raises(RuleSyntaxError, match="nested more than"):
         rules_from_json({"name": "r", "always": deep})
+
+
+# -- tags and the policy key ---------------------------------------------------
+
+TAGGED = '''
+rule "tagged" {
+    id "TG-01"
+    policy "TI-2"
+    tags "access-control", "tenancy"
+    severity high
+    when operation.is_write
+    never response.status < 300
+}
+'''
+
+
+def test_tags_and_policy_survive_text_printing_and_json():
+    from invariant.rules import document_to_json, format_rules, parse_rules, rules_from_json
+
+    (rule,) = parse_rules(TAGGED).rules
+    assert rule.tags == ("access-control", "tenancy") and rule.policy == "TI-2"
+    assert rule.policy_key == "TI-2"
+    assert parse_rules(format_rules([rule])).rules == (rule,)
+    as_json = document_to_json([rule])
+    assert as_json["rules"][0]["tags"] == ["access-control", "tenancy"]
+    assert as_json["rules"][0]["policy"] == "TI-2"
+    assert rules_from_json(as_json).rules == (rule,)
+
+
+def test_policy_key_defaults_to_the_id_and_is_not_printed_then():
+    from invariant.rules import format_rules, parse_rules
+
+    (rule,) = parse_rules('rule "r" { id "AB-12" never response.status == 1 }').rules
+    assert rule.policy is None and rule.policy_key == "AB-12"
+    assert "policy" not in format_rules([rule]) and "tags" not in format_rules([rule])
+
+
+def test_tag_and_policy_mistakes_are_reported():
+    from invariant.integrations.document_saas import SCHEMA
+    from invariant.rules import RuleValidationError, RuleSet
+
+    def problems(extra: str) -> str:
+        source = f'rule "r" {{ {extra} never response.status == 1 }}'
+        with pytest.raises(RuleValidationError) as caught:
+            RuleSet.from_text(source, SCHEMA)
+        return "; ".join(d.message for d in caught.value.diagnostics)
+
+    assert "tag 'Bad Tag' is not valid" in problems('tags "Bad Tag"')
+    assert "tag '' is not valid" in problems('tags ""')
+    assert "a tag is listed twice" in problems('tags "a", "a"')
+    assert "at most 12 tags" in problems("tags " + ", ".join(f'"t{i}"' for i in range(13)))
+    assert "policy key 'no spaces' is not valid" in problems('policy "no spaces"')
+
+
+def test_json_tags_must_be_a_list_of_strings():
+    from invariant.rules import RuleError, rules_from_json
+
+    for bad in ("x", ["a", 1], {"a": 1}):
+        with pytest.raises(RuleError, match='"tags" must be a list of strings'):
+            rules_from_json({"name": "r", "tags": bad, "never": "response.status == 1"})
+    with pytest.raises(RuleError, match="policy"):
+        rules_from_json({"name": "r", "policy": 5, "never": "response.status == 1"})
+
+
+def test_tags_do_not_change_a_verdict_but_the_policy_key_names_the_denial():
+    from invariant.integrations.document_saas import SCHEMA
+    from invariant.rules import RuleSet
+
+    plain = RuleSet.from_text('rule "r" { id "AB-12" never response.status == 1 }', SCHEMA)
+    tagged = RuleSet.from_text(
+        'rule "r" { id "AB-12" tags "x" policy "TI-2" never response.status == 1 }', SCHEMA
+    )
+    from invariant.properties.base import Property
+
+    assert Property.from_rule(plain.rules[0]).policy == "AB-12"
+    assert Property.from_rule(tagged.rules[0]).policy == "TI-2"
+    assert Property.from_rule(tagged.rules[0]).tags == ("x",)

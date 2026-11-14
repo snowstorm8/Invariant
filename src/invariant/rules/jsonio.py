@@ -55,7 +55,7 @@ from .printer import format_template
 
 FORMAT_VERSION = 1
 RULE_KEYS = (
-    "name", "id", "description", "severity", "enabled", "when", "bindings", "let", "observe",
+    "name", "id", "policy", "tags", "description", "severity", "enabled", "when", "bindings", "let", "observe",
     "assert", "always", "never", "message", "pass_message", "evidence",
 )  # fmt: skip
 _FOLDING = ("and", "or", "+", "*")
@@ -382,9 +382,15 @@ def _rule(obj: Any, path: str) -> tuple[Rule, bool]:
         evidence = tuple(
             (k, _expr(v, f"{path}.evidence.{k}")) for k, v in obj["evidence"].items()
         )
+    tags_value = obj.get("tags", [])
+    if not isinstance(tags_value, list) or not all(isinstance(t, str) for t in tags_value):
+        raise _Fail('"tags" must be a list of strings', f"{path}.tags")
+    policy_key = _text(obj, "policy", path) if "policy" in obj else None
     rule = Rule(
         name=name,
         id=rule_id,
+        tags=tuple(tags_value),
+        policy=policy_key,
         description=description,
         severity=severity,
         when=when,
@@ -555,6 +561,10 @@ def rule_to_json(rule: Rule, *, enabled: bool = True) -> dict[str, Any]:
     out: dict[str, Any] = {"name": rule.name}
     if rule.id != rule.name:
         out["id"] = rule.id
+    if rule.policy is not None:
+        out["policy"] = rule.policy
+    if rule.tags:
+        out["tags"] = list(rule.tags)
     if rule.description:
         out["description"] = rule.description
     out["severity"] = rule.severity

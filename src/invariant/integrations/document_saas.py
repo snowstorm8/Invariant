@@ -87,11 +87,35 @@ _POLICY = record(
         "Policy rules the operation breaks, keyed by policy rule id (TI-1, TI-2, AZ-1).",
     ),
 )
+_COOKIE = record(
+    name=Field(STRING, "Cookie name."),
+    secure=Field(BOOL, "The Secure attribute is set."),
+    http_only=Field(BOOL, "The HttpOnly attribute is set."),
+    same_site=Field(STRING, "SameSite value, lower-cased; empty when absent."),
+    path=Field(STRING, "Path attribute; empty when absent."),
+    domain=Field(STRING, "Domain attribute; empty when absent."),
+    persistent=Field(BOOL, "Has Max-Age or Expires, so it outlives the browser session."),
+    raw=Field(STRING, "The Set-Cookie header, verbatim."),
+)
 _RESPONSE = record(
     status=Field(INT, "HTTP status code."),
     body=Field(STRING, "Raw response body."),
     excerpt=Field(STRING, "The body, truncated for reports."),
     json=Field(ANY, "The body decoded as JSON; undefined if it is not JSON.", optional=True),
+    headers=Field(
+        MapType(STRING),
+        "Response headers by lower-case name (e.g. headers[\"cache-control\"]); "
+        "a header that was not sent is undefined, so test it with has() or coalesce().",
+    ),
+    cookies=Field(ListType(_COOKIE), "Cookies the response sets, one entry per Set-Cookie."),
+    request=Field(
+        record(
+            method=Field(STRING, "HTTP method of the request, upper-case."),
+            path=Field(STRING, "Request path."),
+        ),
+        "The request this response answers.",
+        optional=True,
+    ),
 )
 _EVENT = record(
     index=Field(INT, "Position among the actor operations of this run, from 0."),
@@ -105,6 +129,11 @@ _EVENT = record(
             body=STRING,
             excerpt=STRING,
             json=Field(ANY, optional=True),
+            headers=MapType(STRING),
+            cookies=ListType(_COOKIE),
+            request=Field(
+                record(method=STRING, path=STRING), "The request it answered.", optional=True
+            ),
         ),
         "What the application answered.",
     ),
@@ -253,8 +282,34 @@ def _listing(snapshot: Snapshot) -> dict[str, Value]:
     }
 
 
+def _cookie(raw: str) -> dict[str, Value]:
+    """Parse one Set-Cookie header (attributes are case-insensitive)."""
+    name = raw.split(";", 1)[0].split("=", 1)[0].strip()
+    attrs: dict[str, str] = {}
+    for part in raw.split(";")[1:]:
+        key, _, value = part.strip().partition("=")
+        attrs[key.strip().lower()] = value.strip()
+    return {
+        "name": name,
+        "secure": "secure" in attrs,
+        "http_only": "httponly" in attrs,
+        "same_site": attrs.get("samesite", "").lower(),
+        "path": attrs.get("path", ""),
+        "domain": attrs.get("domain", ""),
+        "persistent": "max-age" in attrs or "expires" in attrs,
+        "raw": raw,
+    }
+
+
 def _response(response: Observation) -> dict[str, Value]:
-    out: dict[str, Value] = {"body": response.body, "excerpt": response.excerpt()}
+    out: dict[str, Value] = {
+        "body": response.body,
+        "excerpt": response.excerpt(),
+        "headers": dict(response.headers),
+        "cookies": [_cookie(raw) for raw in response.set_cookies],
+    }
+    if response.method is not None and response.path is not None:
+        out["request"] = {"method": response.method.upper(), "path": response.path}
     if response.status is not None:
         out["status"] = response.status
     decoded = response.json_body()

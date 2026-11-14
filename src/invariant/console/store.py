@@ -14,6 +14,8 @@ import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from invariant.rules.ids import DEFAULT_ALGORITHM
+
 STORE_VERSION = 1
 
 
@@ -31,6 +33,12 @@ class StoreData:
     rules: list[StoredRule] = field(default_factory=list)
     disabled_builtin: list[str] = field(default_factory=list)
     next_key: int = 1
+    #: Which algorithm names rules that are written without an id (see ``rules/ids.py``).
+    id_algorithm: str = DEFAULT_ALGORITHM
+    #: Display ids chosen for built-in rules, by their shipped id. A built-in rule
+    #: keeps its shipped id as its key and as its policy key; only the id shown
+    #: in reports and the console changes.
+    builtin_ids: dict[str, str] = field(default_factory=dict)
 
 
 class RuleStore:
@@ -59,6 +67,8 @@ class RuleStore:
                 rules=rules,
                 disabled_builtin=[str(i) for i in raw.get("disabled_builtin", [])],
                 next_key=int(raw.get("next_key", len(rules) + 1)),
+                id_algorithm=str(raw.get("id_algorithm", DEFAULT_ALGORITHM)),
+                builtin_ids={str(k): str(v) for k, v in raw.get("builtin_ids", {}).items()},
             )
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
             raise ValueError(f"cannot read rule store {self.path}: {exc}") from exc

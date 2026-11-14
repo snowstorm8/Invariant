@@ -24,8 +24,20 @@ DELETE_ROLES: frozenset[str] = frozenset({"admin"})
 #: update-missing-tenant-check PUT /documents/{id} checks the caller's role but
 #:                             not that the document belongs to the caller's org.
 #: viewer-can-update           PUT /documents/{id} does not enforce the role check.
+#: missing-security-headers    Responses omit the browser hardening headers every
+#:                             other build sends (nosniff, no-store, frame and
+#:                             referrer policy) and add a version-revealing Server header.
+#: verbose-errors              A request for another organization's document is
+#:                             answered 403 and names the owning organization, instead of
+#:                             the 404 that is also given for documents that do not exist.
 KNOWN_DEFECTS: frozenset[str] = frozenset(
-    {"stale-cache-read", "update-missing-tenant-check", "viewer-can-update"}
+    {
+        "stale-cache-read",
+        "update-missing-tenant-check",
+        "viewer-can-update",
+        "missing-security-headers",
+        "verbose-errors",
+    }
 )
 
 

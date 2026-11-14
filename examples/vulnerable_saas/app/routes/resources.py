@@ -15,6 +15,16 @@ CurrentUser = Annotated[User, Depends(current_user)]
 State = Annotated[AppState, Depends(get_state)]
 
 
+def _not_found(doc: Document | None, state: AppState) -> HTTPException:
+    """The answer for a document the caller may not touch (or that is not there)."""
+    if doc is not None and "verbose-errors" in state.defects:
+        # DEFECT: confirms the document exists, and names the organization that owns it.
+        return HTTPException(
+            status_code=403, detail=f"document belongs to another organization ({doc.org_id})"
+        )
+    return HTTPException(status_code=404, detail="not found")
+
+
 @router.post("/documents", status_code=201)
 def create_document(body: DocumentIn, user: CurrentUser, state: State) -> dict[str, Any]:
     if user.role not in WRITE_ROLES:
@@ -37,7 +47,7 @@ def read_document(doc_id: str, user: CurrentUser, state: State) -> dict[str, Any
             return cached.view()  # DEFECT: cache hit skips the tenant check
     doc = state.documents.get(doc_id)
     if doc is None or doc.org_id != user.org_id:
-        raise HTTPException(status_code=404, detail="not found")
+        raise _not_found(doc, state)
     return doc.view()
 
 
@@ -49,7 +59,7 @@ def update_document(
     if doc is None:
         raise HTTPException(status_code=404, detail="not found")
     if doc.org_id != user.org_id and "update-missing-tenant-check" not in state.defects:
-        raise HTTPException(status_code=404, detail="not found")
+        raise _not_found(doc, state)
     if user.role not in WRITE_ROLES and "viewer-can-update" not in state.defects:
         raise HTTPException(status_code=403, detail="role may not write")
     doc.content = body.content
@@ -62,7 +72,7 @@ def update_document(
 def delete_document(doc_id: str, user: CurrentUser, state: State) -> dict[str, Any]:
     doc = state.documents.get(doc_id)
     if doc is None or doc.org_id != user.org_id:
-        raise HTTPException(status_code=404, detail="not found")
+        raise _not_found(doc, state)
     if user.role not in DELETE_ROLES:
         raise HTTPException(status_code=403, detail="role may not delete")
     del state.documents[doc_id]

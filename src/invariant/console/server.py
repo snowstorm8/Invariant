@@ -44,6 +44,9 @@ def make_handler(app: ConsoleApp, allowed_hosts: frozenset[str]) -> type[BaseHTT
         "/api/rules": app.save_rule,
         "/api/rules/import": app.import_json,
         "/api/rules/enabled": app.set_enabled,
+        "/api/rules/enabled-many": app.set_enabled_many,
+        "/api/settings/preview": app.preview_settings,
+        "/api/settings": app.save_settings,
         "/api/rules/delete": app.delete_rule,
         "/api/scan": app.scan,
         "/api/replay": app.replay,
@@ -52,6 +55,7 @@ def make_handler(app: ConsoleApp, allowed_hosts: frozenset[str]) -> type[BaseHTT
     gets: dict[str, Callable[[], dict[str, Any]]] = {
         "/api/bootstrap": app.bootstrap,
         "/api/rules/export": app.export,
+        "/api/settings": app.get_settings,
     }
 
     class Handler(BaseHTTPRequestHandler):

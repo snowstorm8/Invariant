@@ -61,6 +61,8 @@ from .types import (
 NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 #: Ids the framework uses for its own evaluations.
 RESERVED_IDS = frozenset({"EXEC"})
+TAG_PATTERN = re.compile(r"[a-z0-9][a-z0-9._-]{0,31}")
+MAX_TAGS = 12
 MAX_BINDINGS = 64
 MAX_ASSERTIONS = 32
 
@@ -131,6 +133,23 @@ class _RuleChecker:
                     "'-', starting with a letter or digit",
                     rule.loc,
                 )
+        if rule.policy is not None and not NAME_PATTERN.fullmatch(rule.policy):
+            self.error(
+                f"policy key {rule.policy!r} is not valid: use 1-64 letters, digits, '.', '_' "
+                "or '-', starting with a letter or digit",
+                rule.loc,
+            )
+        if len(rule.tags) > MAX_TAGS:
+            self.error(f"a rule may have at most {MAX_TAGS} tags", rule.loc)
+        for tag in rule.tags:
+            if not TAG_PATTERN.fullmatch(tag):
+                self.error(
+                    f"tag {tag!r} is not valid: use 1-32 lower-case letters, digits, '_', '.' "
+                    "or '-', starting with a letter or digit",
+                    rule.loc,
+                )
+        if len(set(rule.tags)) != len(rule.tags):
+            self.error("a tag is listed twice", rule.loc)
         if rule.id in RESERVED_IDS:
             self.error(f"rule id '{rule.id}' is reserved by Invariant", rule.loc)
         if rule.severity not in SEVERITIES:

@@ -59,6 +59,16 @@ DEFECTS = {
         "description": "PUT /documents/{id} does not enforce the role check, so read-only viewers can modify documents.",
         "property": "AZ-1",
     },
+    "missing-security-headers": {
+        "title": "Missing security headers",
+        "description": "Responses omit nosniff, no-store, frame and referrer policy and announce the server version.",
+        "property": "TH-1",
+    },
+    "verbose-errors": {
+        "title": "Verbose errors",
+        "description": "A request for another organization's document gets a 403 naming the owner instead of a plain 404.",
+        "property": "DX-3",
+    },
 }
 
 

@@ -49,7 +49,18 @@ class HttpAdapter(Adapter):
             response = self._client.request(method, path, json=json_body, headers=headers)
         except httpx.HTTPError as exc:
             return Observation(error=f"{type(exc).__name__}: {exc}")
-        return Observation(status=response.status_code, body=response.text)
+        seen: dict[str, str] = {}
+        for name in {key.lower() for key in response.headers}:
+            if name != "set-cookie":
+                seen[name] = ", ".join(response.headers.get_list(name))
+        return Observation(
+            status=response.status_code,
+            body=response.text,
+            headers=seen,
+            set_cookies=tuple(response.headers.get_list("set-cookie")),
+            method=method,
+            path=path,
+        )
 
     def close(self) -> None:
         self._client.close()
