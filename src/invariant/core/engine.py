@@ -96,6 +96,10 @@ class Engine:
         #: Terminal: only a successful ``reset()`` clears it, because the model
         #: can no longer be trusted and must not be built upon.
         self._invalid: str | None = None
+        #: True once a step violated a property the evaluator has muted. The
+        #: model may no longer match the target after such a step, so callers
+        #: stop the run there instead of building on it.
+        self.muted_violation = False
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -109,6 +113,7 @@ class Engine:
         self.history = []
         self._ref_counts = {}
         self._events = []
+        self.muted_violation = False
         self._invalid = None
 
     def close(self) -> None:
@@ -356,7 +361,10 @@ class Engine:
         )
 
     def _raise_if_failed(self, record: StepRecord) -> None:
-        violations = [e for e in record.evaluations if e.outcome is Outcome.VIOLATION]
+        found = [e for e in record.evaluations if e.outcome is Outcome.VIOLATION]
+        violations = [e for e in found if e.property_id not in self.evaluator.muted]
+        if len(violations) < len(found):
+            self.muted_violation = True
         if violations:
             first = violations[0]
             raise PropertyViolationError(

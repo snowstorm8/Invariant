@@ -16,7 +16,8 @@ taken or cannot be parsed) is INCONCLUSIVE, never PASS.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import copy
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -73,6 +74,11 @@ class Evaluator:
     #: complete). "active": only those naming a property in this evaluator; a
     #: rule the developer switched off is not an error.
     denial_coverage: Literal["all", "active"] = "all"
+    #: Properties whose violations were already reported. They are still
+    #: evaluated (so probes and denial coverage are unchanged) but a violation
+    #: of one ends the run quietly instead of failing it (see ``Engine``). Used
+    #: to look for the *other* rules that fail once a failure has been captured.
+    muted: frozenset[str] = frozenset()
 
     def __init__(self, properties: Sequence[SecurityProperty] | None = None) -> None:
         if properties is not None:
@@ -86,6 +92,13 @@ class Evaluator:
         evaluator.rules = rules
         evaluator.denial_coverage = "active"
         return evaluator
+
+    def muting(self, property_ids: Collection[str]) -> Evaluator:
+        """A copy of this evaluator in which violations of ``property_ids`` do
+        not count (see ``muted``); everything else is judged as before."""
+        clone = copy.copy(self)
+        clone.muted = frozenset(property_ids)
+        return clone
 
     @property
     def catalog(self) -> dict[str, Property]:

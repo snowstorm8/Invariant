@@ -26,7 +26,7 @@ see [rules.md](rules.md). The rest of this page is about extending what rules ca
 ## Extending the built-in set or the context
 
 1. To ship a rule by default, append it to `integrations/document_saas.rules`. Append rather than
-   insert: the first violation on a step decides how a failure is attributed.
+   insert: the first violation on a step headlines the report (all failing rules are still reported).
 2. To expose a new field, add it to the schema and to the values in
    `integrations/document_saas.py`; the validator and the console's reference pick it up.
 3. Test with `RuleSet.from_text(...)` and `Evaluator.for_rules(...)`; rule evaluation is pure.

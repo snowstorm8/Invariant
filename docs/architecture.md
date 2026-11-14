@@ -57,7 +57,19 @@ The framework owns missing evidence: no response, a 5xx, or a probe that was not
 parsed is `INCONCLUSIVE`, and a property is never asked to judge without the evidence it required.
 A rule whose verdict depends on an undefined value (a field that is not there) is `INCONCLUSIVE` too.
 By default (`strict`) these stop the run. Out of scope means no evaluation, not a `PASS`. The first
-violation on a step determines how a failure is attributed, so evaluation order is observable.
+violation on a step headlines the report (`Report.finding`), so evaluation order is observable.
+
+**Every failing rule is reported.** A step is judged by all rules in scope, and a run stops at the
+first failing step, so one search can only ever see the rules that fail there. `explore` therefore
+repeats the search: after a round fails, every rule that failed is *muted* (`Evaluator.muting`):
+still evaluated, so probes and denial coverage do not change, but a violation of it ends that
+generated sequence quietly (`Engine.muted_violation`) instead of failing the run. The model and
+target can disagree after such a step, so nothing is built on it. Rounds repeat, with the same
+seed, until one finds nothing new or every rule has been reported. Each failed rule is minimised and
+replayed on its own (every other rule muted), and appears in `Report.findings` with its own
+`scenario`, `steps` and `reproduced`; `finding`/`scenario`/`steps` repeat the first entry. The cost
+is one more full search per round, and a rule that only fails in sequences that are cut short by
+another rule's violation needs a larger `--max-examples` to be reached.
 
 Verifying *authorised* writes before committing them to the model is separate from property
 evaluation and stays in the engine (see design-decisions.md).

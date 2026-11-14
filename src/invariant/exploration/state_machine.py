@@ -76,7 +76,11 @@ def build_state_machine(
             self.engine = Engine(adapter_factory(), evaluator, strict=strict)
             self.engine.reset()
 
-        def _apply(self, op: Operation) -> StepRecord:
+        def _apply(self, op: Operation) -> StepRecord | None:
+            # After a step that violated an already-reported rule the model and
+            # the target may disagree, so the rest of this sequence is not run.
+            if self.engine.muted_violation:
+                return None
             try:
                 record = self.engine.apply(op)
             except RunFailure as failure:

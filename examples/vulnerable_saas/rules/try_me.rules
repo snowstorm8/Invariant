@@ -1,0 +1,63 @@
+# Rules to try in the console (paste one, or upload as text). Each is independent of
+# the built-ins: turn the built-ins off in the Rules tab to see these detect alone.
+
+# 1. Catches "viewer-can-update" (AZ-1 defect), from the response alone.
+rule "viewer-write-is-rejected" {
+    description "A viewer's write must be answered with an error, never a success."
+    severity high
+    when operation.is_write and actor.role == "viewer"
+    never response.status < 300
+    message "viewer {actor.ref} got status {response.status} for a write"
+}
+
+# 2. Catches "update-missing-tenant-check" (TI-2 defect), from the response alone.
+rule "cross-tenant-write-is-rejected" {
+    description "Writing into another organization must never succeed."
+    severity critical
+    when operation.is_write and has(resource) and resource.org != actor.org
+    never response.status < 300
+    message "{actor.ref} ({actor.org}) got status {response.status} writing {resource.ref} of {resource.org}"
+}
+
+# 3. Catches "stale-cache-read" (TI-1 defect) via a structural check on the response.
+rule "read-returns-own-tenant" {
+    description "A successful read must return a document of the reader's organization."
+    severity critical
+    when operation.type == "read_document" and has(resource) and resource.org != actor.org
+    never response.status == 200
+    message "{actor.ref} read {resource.ref}, owned by {resource.org}"
+}
+
+# 4. State rule (any defect that leaks via a list): lists must not show other tenants.
+rule "list-has-no-foreign-documents" {
+    description "A listing must not contain documents of other organizations."
+    severity critical
+    let foreign = [d.ref for d in state.documents
+                   where d.org != actor.org and contains(response.body, d.marker)]
+    when operation.type == "list_documents"
+    never count(foreign) > 0
+    message "listing for {actor.org} contained {join(foreign, ', ')}"
+}
+
+# 5. Sequence rule: a deleted document must not come back on read.
+rule "no-read-after-delete" {
+    description "Once deleted, a document's content must never be served again."
+    severity high
+    when operation.type == "read_document"
+        and some e in events :
+            e.operation.type == "delete_document"
+            and e.operation.target == operation.target
+            and e.policy.allowed and e.response.status < 300
+    never contains(response.body, resource.marker)
+}
+
+# 6. Probe rule: any write by a viewer must leave the org's documents exactly as modelled.
+rule "viewers-are-read-only" {
+    description "Nothing a viewer does may change its organization's documents."
+    severity high
+    when actor.role == "viewer"
+    observe listing = org_documents(actor.org)
+    let changes = diff(state.expected_listing[actor.org], listing)
+    never count(changes) > 0
+    message "viewer {actor.ref} changed {actor.org}: {join(changes, '; ')}"
+}

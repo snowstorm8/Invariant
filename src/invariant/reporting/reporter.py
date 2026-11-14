@@ -2,19 +2,59 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
 from invariant import __version__
-from invariant.core.engine import RunFailure
+from invariant.core.engine import RunFailure, StepRecord
 from invariant.core.scenario import describe_op
-from invariant.evaluation.violations import Outcome
+from invariant.evaluation.violations import Evaluation, Outcome
 from invariant.properties.base import Property
 from invariant.properties.registry import EXECUTION, PROPERTIES
 from invariant.rules.engine import RuleSet
 
 from .models import Finding, Report
+
+
+@dataclass(frozen=True)
+class Confirmed:
+    """One failed rule with the minimal run that shows it and its replay result."""
+
+    failure: RunFailure
+    property_id: str
+    reproduced: bool | None
+
+
+def primary_evaluation(record: StepRecord) -> Evaluation:
+    """The evaluation a failing step is headlined by: its first violation, or
+    else its first inconclusive result."""
+    return next(
+        e
+        for e in record.evaluations
+        if e.outcome in (Outcome.VIOLATION, Outcome.INCONCLUSIVE)
+        and (e.outcome is Outcome.VIOLATION or record.outcome is not Outcome.VIOLATION)
+    )
+
+
+def _finding(entry: Confirmed, catalog: Mapping[str, Property]) -> Finding:
+    record = entry.failure.record
+    evaluation = next(e for e in record.evaluations if e.property_id == entry.property_id)
+    prop = catalog.get(evaluation.property_id, EXECUTION)
+    return Finding(
+        property_id=prop.id,
+        property_name=prop.name,
+        statement=prop.statement,
+        outcome=evaluation.outcome,
+        summary=evaluation.summary,
+        step_index=record.index,
+        evidence=evaluation.evidence,
+        severity=prop.severity,
+        scenario=entry.failure.scenario,
+        steps=entry.failure.history,
+        reproduced=entry.reproduced,
+    )
 
 
 def build_report(
@@ -26,13 +66,15 @@ def build_report(
     reproduced: bool | None,
     properties: Mapping[str, Property] | None = None,
     rules: RuleSet | None = None,
+    confirmed: Sequence[Confirmed] | None = None,
 ) -> Report:
     """``properties`` is the metadata of the rules the run was judged with
     (default: the built-in ones); ``rules`` is embedded so the report replays
-    with the same rule set."""
+    with the same rule set. ``confirmed`` lists every failed rule, first one
+    first; without it the report has the single failure ``failure``."""
     catalog = PROPERTIES if properties is None else properties
     embedded = rules.to_json()["rules"] if rules is not None else None
-    if failure is None:
+    if failure is None and not confirmed:
         return Report(
             tool_version=__version__,
             target=target,
@@ -41,33 +83,22 @@ def build_report(
             seed=seed,
             rules=embedded,
         )
-    record = failure.record
-    evaluation = next(
-        e
-        for e in record.evaluations
-        if e.outcome in (Outcome.VIOLATION, Outcome.INCONCLUSIVE)
-        and (e.outcome is Outcome.VIOLATION or record.outcome is not Outcome.VIOLATION)
-    )
-    prop = catalog.get(evaluation.property_id, EXECUTION)
+    if not confirmed:
+        assert failure is not None
+        confirmed = [Confirmed(failure, primary_evaluation(failure.record).property_id, reproduced)]
+    findings = [_finding(entry, catalog) for entry in confirmed]
+    first = findings[0]
     return Report(
         tool_version=__version__,
         target=target,
-        outcome=evaluation.outcome,
+        outcome=first.outcome,
         executions=executions,
         seed=seed,
-        finding=Finding(
-            property_id=prop.id,
-            property_name=prop.name,
-            statement=prop.statement,
-            outcome=evaluation.outcome,
-            summary=evaluation.summary,
-            step_index=record.index,
-            evidence=evaluation.evidence,
-            severity=prop.severity,
-        ),
-        scenario=failure.scenario,
-        steps=failure.history,
-        reproduced=reproduced,
+        finding=first,
+        findings=findings,
+        scenario=first.scenario,
+        steps=first.steps,
+        reproduced=first.reproduced,
         rules=embedded,
     )
 
@@ -108,8 +139,22 @@ def render_text(report: Report) -> str:
     if report.finding is None:
         lines.append(report.note)
         return "\n".join(lines)
-    f = report.finding
-    lines += [
+    findings = report.findings or [report.finding]
+    violated = [f for f in findings if f.outcome is Outcome.VIOLATION]
+    if len(violated) > 1:
+        lines.append(f"{len(violated)} rules violated: " + ", ".join(f.property_id for f in violated))
+    for number, f in enumerate(findings, 1):
+        if len(findings) > 1:
+            lines += ["", f"=== Finding {number} of {len(findings)} ==="]
+        lines += _render_finding(report, f)
+    lines += ["", report.note]
+    return "\n".join(lines)
+
+
+def _render_finding(report: Report, f: Finding) -> list[str]:
+    steps = f.steps or report.steps
+    reproduced = f.reproduced if f.scenario is not None else report.reproduced
+    lines = [
         "",
         f"{f.outcome}: {f.property_id} {f.property_name}"
         + (f"  [severity: {f.severity}]" if f.severity else ""),
@@ -118,7 +163,7 @@ def render_text(report: Report) -> str:
         "",
         "Operation sequence:",
     ]
-    for step in report.steps:
+    for step in steps:
         marker = "  <-- " + f.outcome if step.index == f.step_index else ""
         status = step.status if step.status is not None else "no response"
         lines.append(
@@ -128,13 +173,10 @@ def render_text(report: Report) -> str:
         lines += ["", "Evidence:"]
         for key, value in f.evidence.items():
             lines.append(f"  {key}: {value}")
-    if report.reproduced is not None:
+    if reproduced is not None:
         lines += [
             "",
             "Reproduced by deterministic replay on a fresh target: "
-            + (
-                "yes" if report.reproduced else "NO (flaky or non-deterministic target)"
-            ),
+            + ("yes" if reproduced else "NO (flaky or non-deterministic target)"),
         ]
-    lines += ["", report.note]
-    return "\n".join(lines)
+    return lines

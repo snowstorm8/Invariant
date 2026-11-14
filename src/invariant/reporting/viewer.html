@@ -539,14 +539,30 @@
     </section>`;
   }
 
-  function render(report) {
-    if (!report || typeof report !== "object" || !report.outcome) throw new Error("not an Invariant report (missing 'outcome')");
+  // Every failed rule has its own minimal counterexample; show one at a time.
+  let current = null;
+  function renderPicker(all, selected) {
+    if (all.length < 2) return "";
+    const buttons = all.map((f, i) => `<button type="button" class="finding-pick" data-finding="${i}" aria-pressed="${i === selected}" style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;text-align:left;font:inherit;padding:8px 10px;border:1px solid var(--border-strong, #2b323b);border-radius:8px;background:transparent;color:inherit;cursor:pointer;${i === selected ? "outline:2px solid var(--muted, #888)" : ""}"><b>${esc(f.property_id)}</b><span>${esc(f.outcome)}</span><span style="color:var(--muted)">${esc(f.summary)}</span></button>`).join("");
+    return `<section class="card" aria-labelledby="fp-title">
+      <div class="card-h"><h3 id="fp-title">${all.length} rules failed</h3><span class="sub">select one to see its minimal counterexample</span></div>
+      <div class="card-b" style="display:grid;gap:6px">${buttons}</div>
+    </section>`;
+  }
+
+  function render(full, selected = 0) {
+    if (!full || typeof full !== "object" || !full.outcome) throw new Error("not an Invariant report (missing 'outcome')");
+    current = full;
+    const all = Array.isArray(full.findings) ? full.findings : [];
+    const pick = all[Math.min(selected, all.length - 1)];
+    const report = pick ? { ...full, finding: pick, scenario: pick.scenario ?? full.scenario, steps: pick.steps?.length ? pick.steps : full.steps, reproduced: pick.reproduced ?? full.reproduced } : full;
     const m = buildModel(report);
     $("#tool-version").textContent = "v" + (report.tool_version ?? "?");
     $("#disclaimer").textContent = report.note ?? "";
     document.title = `${report.outcome} · Invariant`;
     $("#report").innerHTML = `
       ${renderVerdict(report, m)}
+      ${renderPicker(all, Math.min(selected, Math.max(all.length - 1, 0)))}
       <div class="grid">
         <div class="col">${renderTimeline(report, m)}${renderEvidence(report, m)}</div>
         <div class="col">${renderTopology(report, m)}${renderProperties(report)}${renderReplay(report)}</div>
@@ -563,6 +579,8 @@
   }
 
   document.addEventListener("click", (e) => {
+    const pickBtn = e.target.closest("[data-finding]");
+    if (pickBtn && current) { render(current, Number(pickBtn.dataset.finding)); return; }
     const sample = e.target.closest("[data-sample]");
     if (sample) { render(loadSample(sample.dataset.sample)); setSample(sample.dataset.sample); return; }
     const row = e.target.closest(".step-row[aria-controls]");

@@ -16,6 +16,7 @@ import time
 from typing import Any
 
 from invariant import __version__
+from invariant.analysis.minimizer import violates
 from invariant.analysis.reproduction import replay
 from invariant.core.scenario import describe_op
 from invariant.evaluation.evaluator import evaluator_for_report
@@ -518,6 +519,10 @@ class ConsoleApp:
         return {
             "report": json.loads(report.model_dump_json()),
             "steps_text": [describe_op(s.operation) for s in report.steps],
+            # One entry per finding: its operation sequence, described.
+            "findings_steps_text": [
+                [describe_op(s.operation) for s in f.steps] for f in report.findings
+            ],
             "rules_used": [{"id": r.id, "name": r.name, "severity": r.severity} for r in rules.rules],
             "options": sorted(options),
             "duration_ms": int((time.perf_counter() - started) * 1000),
@@ -541,6 +546,28 @@ class ConsoleApp:
             result = replay(
                 report.scenario, lambda: self.target.adapter_for(options), evaluator=evaluator
             )
+            # Each finding has its own minimal scenario. Replay it with every
+            # other rule muted, so the answer is "does this rule alone still fail".
+            every_rule = {p.id for p in evaluator.properties}
+            findings = []
+            for finding in report.findings:
+                if finding.scenario is None:
+                    continue
+                again = replay(
+                    finding.scenario,
+                    lambda: self.target.adapter_for(options),
+                    evaluator=evaluator.muting(every_rule - {finding.property_id}),
+                )
+                findings.append(
+                    {
+                        "property_id": finding.property_id,
+                        "outcome": str(again.outcome),
+                        "valid": again.valid,
+                        "reproduced": violates(again, finding.property_id),
+                        "message": str(again.failure) if again.failure else "",
+                        "steps": len(again.history),
+                    }
+                )
         violated = [
             e.property_id
             for e in (result.failure.record.evaluations if result.failure else [])
@@ -552,6 +579,7 @@ class ConsoleApp:
             "message": str(result.failure) if result.failure else "",
             "violated": violated,
             "steps": len(result.history),
+            "findings": findings,
             "target": self.target.label(options),
             "duration_ms": int((time.perf_counter() - started) * 1000),
         }

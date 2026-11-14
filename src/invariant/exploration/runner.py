@@ -17,7 +17,7 @@ from invariant.core.engine import PropertyViolationError, RunFailure
 from invariant.evaluation.evaluator import Evaluator
 from invariant.evaluation.violations import Outcome
 from invariant.reporting.models import Report
-from invariant.reporting.reporter import build_report
+from invariant.reporting.reporter import Confirmed, build_report, primary_evaluation
 from invariant.rules.engine import RuleSet
 
 from .state_machine import ExplorationSink, build_state_machine
@@ -43,24 +43,17 @@ def _pick(failures: list[RunFailure]) -> RunFailure | None:
     return [f for f in pool if len(f.history) == shortest][-1]
 
 
-def explore(
+def _search(
     adapter_factory: Callable[[], Adapter],
+    evaluator: Evaluator,
     *,
-    target: str = "target",
-    max_examples: int = 200,
-    step_count: int = 25,
-    seed: int | None = None,
-    num_orgs: int = 2,
-    strict: bool = True,
-    rules: RuleSet | None = None,
-) -> ExplorationResult:
-    """Search for a violation. ``seed`` makes the search itself repeatable.
-
-    ``rules`` is the rule set to hold the target to: any mix of built-in and
-    user-defined rules. Every step of every generated sequence is judged by all
-    of them. Without it, the integration's built-in rules are used.
-    """
-    evaluator = Evaluator.for_rules(rules) if rules is not None else Evaluator()
+    max_examples: int,
+    step_count: int,
+    seed: int | None,
+    num_orgs: int,
+    strict: bool,
+) -> tuple[ExplorationSink, RunFailure | None]:
+    """One Hypothesis search; the failure it picked, if any."""
     sink = ExplorationSink()
     machine = build_state_machine(
         adapter_factory, sink=sink, num_orgs=num_orgs, strict=strict, evaluator=evaluator
@@ -89,33 +82,107 @@ def explore(
         # error and must not be swallowed.
         if not sink.failures:
             raise
+    return sink, _pick(sink.failures)
 
-    failure = _pick(sink.failures)
-    reproduced: bool | None = None
-    if failure is not None:
-        if isinstance(failure, PropertyViolationError):
-            prop_id = next(
-                e.property_id for e in failure.record.evaluations if e.outcome is Outcome.VIOLATION
+
+def explore(
+    adapter_factory: Callable[[], Adapter],
+    *,
+    target: str = "target",
+    max_examples: int = 200,
+    step_count: int = 25,
+    seed: int | None = None,
+    num_orgs: int = 2,
+    strict: bool = True,
+    rules: RuleSet | None = None,
+) -> ExplorationResult:
+    """Search for violations. ``seed`` makes the search itself repeatable.
+
+    ``rules`` is the rule set to hold the target to: any mix of built-in and
+    user-defined rules. Every step of every generated sequence is judged by all
+    of them.
+
+    Every rule that fails is reported, each with its own minimal counterexample,
+    not just the first. A search stops at the first failing step, so once rules
+    have failed the search is repeated with those rules muted (still evaluated,
+    but no longer stopping the run) until a search finds nothing new or every
+    rule has been reported.
+    """
+    evaluator = Evaluator.for_rules(rules) if rules is not None else Evaluator()
+    confirmed: list[Confirmed] = []
+    reported: list[str] = []
+    executions = 0
+    for _ in range(len(evaluator.properties) + 1):
+        sink, failure = _search(
+            adapter_factory,
+            evaluator.muting(reported),
+            max_examples=max_examples,
+            step_count=step_count,
+            seed=seed,
+            num_orgs=num_orgs,
+            strict=strict,
+        )
+        executions += sink.executions
+        if failure is None:
+            break
+        if not isinstance(failure, PropertyViolationError):
+            # Nothing could be judged. That is the answer only if nothing else
+            # was found; otherwise the findings stand.
+            if not confirmed:
+                again = replay(failure.scenario, adapter_factory, strict=strict, evaluator=evaluator)
+                confirmed.append(
+                    Confirmed(
+                        failure,
+                        primary_evaluation(failure.record).property_id,
+                        again.outcome == failure.record.outcome,
+                    )
+                )
+            break
+        violated = [
+            e.property_id
+            for e in failure.record.evaluations
+            if e.outcome is Outcome.VIOLATION and e.property_id not in reported
+        ]
+        reported += violated
+        for prop_id in violated:
+            confirmed.append(
+                _confirm(
+                    failure,
+                    prop_id,
+                    adapter_factory,
+                    # Everything else already reported is muted, so the replay
+                    # stops on this rule and no other.
+                    evaluator.muting(set(reported) - {prop_id}),
+                    strict=strict,
+                )
             )
-            _, minimal = minimize(
-                failure.scenario,
-                adapter_factory,
-                property_id=prop_id,
-                strict=strict,
-                evaluator=evaluator,
-            )
-            if minimal.failure is not None and violates(minimal, prop_id):
-                failure = minimal.failure
-        # Independent replay of exactly what the report will contain.
-        again = replay(failure.scenario, adapter_factory, strict=strict, evaluator=evaluator)
-        reproduced = again.outcome == failure.record.outcome
     report = build_report(
         target=target,
-        failure=failure,
-        executions=sink.executions,
+        failure=confirmed[0].failure if confirmed else None,
+        executions=executions,
         seed=seed,
-        reproduced=reproduced,
+        reproduced=confirmed[0].reproduced if confirmed else None,
         properties=evaluator.catalog,
         rules=rules,
+        confirmed=confirmed,
     )
     return ExplorationResult(report.outcome, report)
+
+
+def _confirm(
+    failure: RunFailure,
+    prop_id: str,
+    adapter_factory: Callable[[], Adapter],
+    evaluator: Evaluator,
+    *,
+    strict: bool,
+) -> Confirmed:
+    """Minimise ``failure`` for ``prop_id`` alone and replay what the report will hold."""
+    _, minimal = minimize(
+        failure.scenario, adapter_factory, property_id=prop_id, strict=strict, evaluator=evaluator
+    )
+    if minimal.failure is not None and violates(minimal, prop_id):
+        failure = minimal.failure
+    # Independent replay of exactly what the report will contain.
+    again = replay(failure.scenario, adapter_factory, strict=strict, evaluator=evaluator)
+    return Confirmed(failure, prop_id, again.outcome == failure.record.outcome)

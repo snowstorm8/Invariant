@@ -26,6 +26,12 @@ class Finding(BaseModel):
     evidence: dict[str, Any] = Field(default_factory=dict)
     #: Severity the rule declares (critical, high, medium, low, info), if any.
     severity: str | None = None
+    #: The minimal scenario for this rule alone, the steps it produced and whether
+    #: a fresh replay reproduced it. Set on every entry of ``Report.findings``;
+    #: ``Report.scenario`` and friends repeat the first one.
+    scenario: Scenario | None = None
+    steps: list[StepRecord] = Field(default_factory=list)
+    reproduced: bool | None = None
 
 
 class Report(BaseModel):
@@ -36,6 +42,10 @@ class Report(BaseModel):
     executions: int = 0
     seed: int | None = None
     finding: Finding | None = None
+    #: Every rule that failed, each with its own minimal counterexample. The
+    #: first entry is ``finding``. A run that only had inconclusive steps lists
+    #: that single finding.
+    findings: list[Finding] = Field(default_factory=list)
     #: Operation sequence that triggers the finding (replayable JSON).
     scenario: Scenario | None = None
     #: Every executed step of the minimal failing run, with its evaluations.

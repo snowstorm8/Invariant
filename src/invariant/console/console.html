@@ -132,6 +132,9 @@
   ol.steps li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; padding: 6px 10px; border-radius: 8px; align-items: center; }
   ol.steps li.hit { background: var(--danger-bg); border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); }
   ol.steps .i { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  .findings { display: grid; gap: 6px; }
+  .finding { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; text-align: left; font: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-2); color: inherit; cursor: pointer; }
+  .finding.on { border-color: var(--muted); }
   .replays { display: grid; gap: 6px; margin-top: 12px; }
   .replay { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px; }
   .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border-strong); border-top-color: var(--ok); animation: spin .8s linear infinite; display: inline-block; }
@@ -646,23 +649,29 @@ $("#run-btn").addEventListener("click", async () => {
   finally { $("#run-btn").disabled = false; $("#run-busy").hidden = true; }
 });
 
-function renderResult() {
-  const scan = state.scan, report = scan.report, f = report.finding;
+function renderResult(selected = 0) {
+  const scan = state.scan, report = scan.report;
+  const all = report.findings && report.findings.length ? report.findings : (report.finding ? [report.finding] : []);
+  const pick = Math.min(selected, Math.max(all.length - 1, 0));
+  const f = all[pick] || null;
+  const steps = f && f.steps && f.steps.length ? f.steps : report.steps;
+  const stepsText = scan.findings_steps_text && scan.findings_steps_text[pick] && scan.findings_steps_text[pick].length ? scan.findings_steps_text[pick] : scan.steps_text;
+  const violated = all.filter((x) => x.outcome === "VIOLATION");
   const title = report.outcome === "PASS" ? "No violation found in the explored sequences"
-    : report.outcome === "VIOLATION" ? `${f.property_id} ${f.property_name !== f.property_id ? f.property_name + " " : ""}violated`
+    : report.outcome === "VIOLATION" ? (violated.length > 1 ? `${violated.length} rules violated` : `${f.property_id} ${f.property_name !== f.property_id ? f.property_name + " " : ""}violated`)
     : `${f ? f.property_id : "Run"} could not be decided`;
   const replays = h("div", { class: "replays", id: "replays" });
   const verdict = h("div", { class: "verdict", dataset: { outcome: report.outcome } },
     h("div", { class: "card-b" },
       h("span", { class: "status-pill" }, report.outcome),
       h("h2", {}, title),
-      f ? h("p", { class: "muted", style: "margin:0" }, f.statement) : null,
-      f ? h("p", { style: "margin:10px 0 0" }, h("b", {}, "Why: "), f.summary) : null,
+      violated.length > 1 ? h("p", { class: "muted", style: "margin:0" }, "Every rule below failed; each has its own minimal counterexample.") : (f ? h("p", { class: "muted", style: "margin:0" }, f.statement) : null),
+      violated.length > 1 ? null : (f ? h("p", { style: "margin:10px 0 0" }, h("b", {}, "Why: "), f.summary) : null),
       h("div", { class: "row", style: "margin-top:12px" },
         h("span", { class: "chip" }, report.target), h("span", { class: "chip" }, `${report.executions} sequences explored`),
         h("span", { class: "chip" }, `seed ${report.seed ?? "random"}`), h("span", { class: "chip" }, `${(scan.duration_ms / 1000).toFixed(1)} s`),
         f && f.severity ? h("span", { class: "chip sev", dataset: { s: f.severity } }, f.severity) : null,
-        report.reproduced == null ? null : h("span", { class: "tag " + (report.reproduced ? "good" : "bad") }, report.reproduced ? "reproduced on replay" : "did not reproduce")),
+        report.reproduced == null || violated.length > 1 ? null : h("span", { class: "tag " + (report.reproduced ? "good" : "bad") }, report.reproduced ? "reproduced on replay" : "did not reproduce")),
       h("div", { class: "row", style: "margin-top:14px" },
         report.scenario ? h("button", { class: "btn ghost sm", onclick: () => runReplay(scan.options) }, "Replay on this build") : null,
         report.scenario && scan.options.length ? h("button", { class: "btn ghost sm", onclick: () => runReplay([]) }, "Replay on the fixed build") : null,
@@ -671,10 +680,19 @@ function renderResult() {
       replays,
       h("p", { class: "muted", style: "margin:14px 0 0;font-size:12px" }, report.note)));
   const cards = [verdict];
-  if (report.steps.length) {
-    cards.push(h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", {}, "Operation sequence"), h("span", { class: "muted mono", style: "font-size:12px" }, "minimal, replayable")),
-      h("div", { class: "card-b" }, h("ol", { class: "steps" }, report.steps.map((s, i) => h("li", { class: f && s.index === f.step_index ? "hit" : "" },
-        h("span", { class: "i" }, s.index), h("span", {}, scan.steps_text[i], s.allowed_by_policy ? null : h("span", { class: "muted" }, ` — policy: ${s.policy_reason}`)),
+  if (all.length > 1) {
+    cards.push(h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", {}, "Failed rules"), h("span", { class: "muted", style: "font-size:12px" }, "select one to see its counterexample")),
+      h("div", { class: "card-b" }, h("div", { class: "findings" }, all.map((x, i) => h("button", { class: "finding" + (i === pick ? " on" : ""), onclick: () => renderResult(i) },
+        h("span", { class: "tag " + (x.outcome === "VIOLATION" ? "bad" : "warn") }, x.outcome),
+        h("b", { class: "mono" }, x.property_id),
+        h("span", { class: "muted" }, x.summary),
+        x.severity ? h("span", { class: "chip sev", dataset: { s: x.severity } }, x.severity) : null,
+        x.reproduced == null ? null : h("span", { class: "tag " + (x.reproduced ? "good" : "bad") }, x.reproduced ? "reproduced" : "not reproduced")))))));
+  }
+  if (steps.length) {
+    cards.push(h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", {}, all.length > 1 ? `Operation sequence for ${f.property_id}` : "Operation sequence"), h("span", { class: "muted mono", style: "font-size:12px" }, "minimal, replayable")),
+      h("div", { class: "card-b" }, h("ol", { class: "steps" }, steps.map((s, i) => h("li", { class: f && s.index === f.step_index ? "hit" : "" },
+        h("span", { class: "i" }, s.index), h("span", {}, stepsText[i], s.allowed_by_policy ? null : h("span", { class: "muted" }, ` — policy: ${s.policy_reason}`)),
         h("span", { class: "row" }, h("span", { class: "chip" }, s.status == null ? "no response" : `HTTP ${s.status}`),
           ...s.evaluations.filter((e) => e.outcome !== "PASS").map((e) => h("span", { class: "tag " + (e.outcome === "VIOLATION" ? "bad" : "warn"), title: e.summary }, `${e.property_id} ${e.outcome}`)))))))));
   }
@@ -690,6 +708,14 @@ async function runReplay(options) {
     const out = await api("/api/replay", { options, report: state.report });
     line.replaceChildren(h("span", { class: "tag " + (out.outcome === "PASS" ? "good" : out.outcome === "VIOLATION" ? "bad" : "warn") }, out.outcome),
       h("span", { class: "mono" }, out.target), h("span", { class: "muted" }, out.valid ? (out.message || `${out.steps} operations replayed, every rule held`) : "the scenario does not fit this build"));
+    // One line per failed rule: does that rule, alone, still fail on its own scenario?
+    if (out.findings && out.findings.length > 1) {
+      for (const r of out.findings) {
+        $("#replays").append(h("div", { class: "replay" },
+          h("span", { class: "tag " + (r.reproduced ? "bad" : r.outcome === "PASS" ? "good" : "warn") }, r.reproduced ? "VIOLATION" : r.outcome),
+          h("span", { class: "mono" }, r.property_id), h("span", { class: "muted" }, r.valid ? (r.reproduced ? "still violated" : "holds on this build") : "the scenario does not fit this build")));
+      }
+    }
   } catch (err) { line.replaceChildren(h("span", { class: "tag bad" }, "error"), err.message); }
 }
 
