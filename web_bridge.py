@@ -49,12 +49,31 @@ def target_name(defects: frozenset[str]) -> str:
     return "vulnerable_saas[" + (",".join(sorted(defects)) or "fixed") + "]"
 
 
-def parse_defects(raw: list[str]) -> frozenset[str]:
+def parse_defects(raw: object) -> frozenset[str]:
+    if not isinstance(raw, list) or not all(isinstance(d, str) for d in raw):
+        raise ValueError("defects must be a list of strings")
     defects = frozenset(raw)
     unknown = defects - KNOWN_DEFECTS
     if unknown:
         raise ValueError(f"unknown defects: {sorted(unknown)}")
     return defects
+
+
+def parse_max_examples(raw: object) -> int:
+    # bool is a subclass of int, so it must be rejected explicitly.
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise ValueError("max_examples must be an integer")
+    if raw <= 0:
+        raise ValueError("max_examples must be greater than zero")
+    return raw
+
+
+def parse_seed(raw: object) -> int | None:
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise ValueError("seed must be an integer or null")
+    return raw
 
 
 def main() -> None:
@@ -70,12 +89,14 @@ def main() -> None:
         }
     elif action == "scan":
         defects = parse_defects(req.get("defects", []))
+        seed = parse_seed(req.get("seed"))
+        max_examples = parse_max_examples(req.get("max_examples", 200))
         started = time.perf_counter()
         result = explore(
             lambda: adapter_for(defects),
             target=target_name(defects),
-            seed=req.get("seed"),
-            max_examples=int(req.get("max_examples", 200)),
+            seed=seed,
+            max_examples=max_examples,
         )
         out = {
             "report": json.loads(result.report.model_dump_json()),
