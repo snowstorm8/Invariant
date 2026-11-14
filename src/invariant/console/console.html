@@ -20,6 +20,16 @@
     --sans: "Geist", ui-sans-serif, system-ui, sans-serif;
     --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #f6f7f9; --surface: #ffffff; --surface-2: #eef0f3; --border: #e1e4e9; --border-strong: #cdd2da;
+    --fg: #14171c; --muted: #5a626e; --dim: #8a919c;
+    --danger: #d12f36; --danger-bg: rgba(209, 47, 54, 0.08);
+    --ok: #0b8f60; --ok-bg: rgba(11, 143, 96, 0.1);
+    --warn: #a8670c; --warn-bg: rgba(168, 103, 12, 0.1);
+    --info: #2a64c5;
+  }
+  :root[data-theme="light"] body { background-image: none; }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
   body {
@@ -102,6 +112,22 @@
   .ac .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ac .lbl b { color: var(--ok); font-weight: 600; }
   .ac .det { grid-column: 2; color: var(--muted); font-family: var(--sans); font-size: 11px; white-space: normal; }
+  .editor.drop { outline: 2px dashed var(--ok); outline-offset: -4px; }
+  dialog { background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 12px; padding: 0; width: min(460px, calc(100% - 32px)); }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+  dialog .d-h { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; }
+  dialog table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  dialog td { padding: 6px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  dialog td:first-child { white-space: nowrap; }
+  kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface-2); }
+  input[type="search"], input[type="text"] { background: var(--bg); border: 1px solid var(--border-strong); border-radius: 8px; padding: 5px 9px; color: var(--fg); min-width: 0; }
+  .findbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+  .findbar input[type="search"], .findbar input[type="text"] { width: 170px; font-size: 12px; }
+  .findbar label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+  .tip { position: absolute; z-index: 15; max-width: min(420px, 90%); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3); padding: 8px 10px; font-size: 12px; pointer-events: none; }
+  .tip .p { font-family: var(--mono); font-weight: 600; }
+  .tip .t { font-family: var(--mono); color: var(--info); margin-left: 6px; overflow-wrap: anywhere; }
+  .tip .d { color: var(--muted); margin-top: 3px; }
   .ac .foot { padding: 4px 8px 2px; color: var(--dim); font-family: var(--sans); font-size: 10px; }
   .status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; font-size: 12px; flex-wrap: wrap; }
   ul.diags { list-style: none; margin: 0; padding: 0 8px 8px; display: grid; gap: 4px; }
@@ -153,22 +179,9 @@
   ol.steps li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; padding: 6px 10px; border-radius: 8px; align-items: center; }
   ol.steps li.hit { background: var(--danger-bg); border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); }
   ol.steps .i { font-family: var(--mono); font-size: 11px; color: var(--dim); }
-  .filters { display: grid; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
-  .filters input[type="search"], .filters select { background: var(--bg); border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 10px; color: var(--fg); font: inherit; font-size: 13px; width: 100%; min-width: 0; }
-  .filters .row { gap: 6px; }
-  .tagchip { font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-strong); background: transparent; color: var(--muted); cursor: pointer; }
-  .tagchip[aria-pressed="true"] { color: var(--bg); background: var(--fg); border-color: var(--fg); }
-  .gh { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 12px; margin-top: 4px; border-top: 1px solid var(--border); }
-  .gh .gt { background: none; border: 0; padding: 0; text-align: left; font-weight: 600; color: var(--fg); cursor: pointer; font: inherit; font-weight: 600; }
-  .gh .cnt { font-family: var(--mono); font-size: 11px; color: var(--muted); }
-  .gh .chev { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0 2px; font-size: 12px; width: 16px; }
-  .gh input[type="checkbox"] { width: 16px; height: 16px; margin: 0; cursor: pointer; }
   .algo { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
   .algo:has(input:checked) { border-color: var(--ok); background: var(--surface-2); }
   .algo .t { font-weight: 600; } .algo .d { color: var(--muted); font-size: 12px; } .algo .x { font-family: var(--mono); font-size: 12px; color: var(--dim); }
-  table.changes { width: 100%; border-collapse: collapse; font-size: 12px; }
-  table.changes th, table.changes td { text-align: left; padding: 4px 8px; border-top: 1px solid var(--border); font-family: var(--mono); }
-  table.changes th { color: var(--dim); font-weight: 500; }
   .findings { display: grid; gap: 6px; }
   .finding { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; text-align: left; font: inherit; font-size: 13px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-2); color: inherit; cursor: pointer; }
   .finding.on { border-color: var(--muted); }
@@ -187,12 +200,13 @@
       Invariant <span class="ver" id="version"></span>
       <span class="pill" id="target-name"></span>
     </div>
+    <div class="row"><button class="btn ghost sm" id="theme-btn" title="Switch between dark and light theme" aria-label="Switch between dark and light theme">Theme</button>
     <div class="seg" role="tablist" aria-label="Console sections">
       <button role="tab" id="tab-project" aria-selected="false" aria-controls="view-project">Project</button>
       <button role="tab" id="tab-rules" aria-selected="true" aria-controls="view-rules">Rules</button>
       <button role="tab" id="tab-run" aria-selected="false" aria-controls="view-run">Run exploration</button>
       <button role="tab" id="tab-settings" aria-selected="false" aria-controls="view-settings">Settings</button>
-    </div>
+    </div></div>
   </header>
 
   <div id="banner" class="banner" hidden role="status"><div id="banner-body"></div><button id="banner-close" aria-label="Dismiss">✕</button></div>
@@ -231,22 +245,13 @@
             <input type="file" id="upload-input" accept=".json,application/json" hidden>
           </div>
         </div>
-        <div class="filters">
-          <input type="search" id="rule-search" placeholder="Search name, id, tag or description" aria-label="Search rules" autocomplete="off">
-          <div class="row">
-            <select id="rule-status" aria-label="Show rules that are" style="width:auto">
-              <option value="all">All rules</option><option value="on">Enabled</option><option value="off">Disabled</option>
-            </select>
-            <button class="btn ghost sm" id="bulk-on" title="Enable every rule that matches the filters">Enable shown</button>
-            <button class="btn ghost sm" id="bulk-off" title="Disable every rule that matches the filters">Disable shown</button>
-          </div>
-          <details id="tag-filter"><summary class="muted" style="font-size:12px;cursor:pointer">Filter by tag <span id="tag-active"></span></summary><div class="row" id="tag-chips" style="margin-top:8px"></div></details>
-          <div class="muted" id="rule-count" style="font-size:12px" role="status" aria-live="polite"></div>
-        </div>
-        <div class="group-label" id="custom-label">Your rules</div>
+        <div class="card-b" style="padding:10px 16px 0"><input type="search" id="rule-filter" placeholder="Filter rules by name, id or severity" aria-label="Filter rules" style="width:100%"></div>
+        <p class="empty" id="filter-empty" hidden>No rules match this filter.</p>
+        <div class="group-label">Your rules</div>
         <ul class="rules" id="custom-rules"></ul>
         <div class="empty" id="custom-empty">None yet. Write one with <b>New rule</b> or upload a JSON rule file.</div>
-        <div id="builtin-groups"></div>
+        <div class="group-label">Built-in</div>
+        <ul class="rules" id="builtin-rules"></ul>
         <div class="card-b" style="border-top:1px solid var(--border)">
           <label class="row" style="font-size:12px;color:var(--muted)"><input type="checkbox" id="import-replace"> Replace rules with the same id on upload</label>
           <div class="row" style="margin-top:10px"><button class="btn ghost sm" id="export-btn">Export your rules as JSON</button></div>
@@ -281,6 +286,7 @@
             <button class="btn ghost sm" data-act="paste" data-write title="Paste from the clipboard (Ctrl/⌘+V)">Paste</button>
             <button class="btn ghost sm" data-act="selectall" title="Select all (Ctrl/⌘+A)">Select all</button>
             <span class="sep"></span>
+            <button class="btn ghost sm" data-act="find" title="Find and replace (Ctrl/⌘+F, Ctrl/⌘+H)">Find</button>
             <button class="btn ghost sm" data-act="comment" data-write title="Comment or uncomment the selected lines (Ctrl/⌘+/)">Comment</button>
             <select id="snippet" data-write aria-label="Insert a clause" title="Insert a clause at the cursor">
               <option value="">Insert clause…</option>
@@ -288,12 +294,25 @@
             <span class="sep"></span>
             <button class="btn ghost sm" data-act="download" title="Download the definition as a file">Download</button>
             <button class="btn danger sm" data-act="clear" data-write title="Remove all text (can be undone with Undo)">Clear</button>
+            <button class="btn ghost sm" data-act="help" title="Keyboard shortcuts (?)">?</button>
             <span class="note" id="tool-note" role="status" aria-live="polite">Ctrl+Space: suggestions</span>
+          </div>
+          <div class="findbar" id="findbar" role="search" hidden>
+            <input type="search" id="find-input" placeholder="Find" aria-label="Find">
+            <input type="text" id="replace-input" placeholder="Replace with" aria-label="Replace with" data-write>
+            <label class="muted"><input type="checkbox" id="find-case"> Match case</label>
+            <span class="muted mono" id="find-count" role="status" aria-live="polite" style="min-width:64px"></span>
+            <button class="btn ghost sm" id="find-prev" title="Previous match (Shift+Enter)" aria-label="Previous match">↑</button>
+            <button class="btn ghost sm" id="find-next" title="Next match (Enter)" aria-label="Next match">↓</button>
+            <button class="btn ghost sm" id="replace-one" data-write>Replace</button>
+            <button class="btn ghost sm" id="replace-all" data-write>Replace all</button>
+            <button class="btn ghost sm" id="find-close" aria-label="Close find">✕</button>
           </div>
           <div class="editor" id="editor-box">
             <div class="gutter" id="gutter" aria-hidden="true"></div>
             <textarea id="source" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Rule definition" aria-describedby="status-text" aria-autocomplete="list" aria-controls="ac-list" aria-expanded="false"></textarea>
             <div class="ac" id="ac-list" role="listbox" aria-label="Suggestions" hidden></div>
+            <div class="tip" id="tip" role="tooltip" hidden></div>
           </div>
           <div class="status">
             <span id="status-text" class="muted" role="status" aria-live="polite">Loading…</span>
@@ -357,9 +376,30 @@
   </section>
 </div>
 
+<dialog id="shortcuts" aria-labelledby="shortcuts-title">
+  <div class="d-h"><span id="shortcuts-title">Keyboard shortcuts</span><button class="btn ghost sm" id="shortcuts-close">Close</button></div>
+  <table>
+    <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>S</kbd></td><td>Save the rule</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>Space</kbd> or <kbd>Alt</kbd> + <kbd>/</kbd></td><td>Show suggestions</td></tr>
+    <tr><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>Enter</kbd> <kbd>Tab</kbd> <kbd>Esc</kbd></td><td>Choose, insert or close a suggestion</td></tr>
+    <tr><td><kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd></td><td>Indent / outdent (all selected lines)</td></tr>
+    <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>/</kbd></td><td>Comment or uncomment lines</td></tr>
+    <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Z</kbd> / <kbd>Shift</kbd> + <kbd>Z</kbd></td><td>Undo / redo</td></tr>
+    <tr><td><kbd>?</kbd></td><td>Open this list (when not typing in a field)</td></tr>
+  </table>
+  <div class="card-b muted" style="font-size:12px">You can also drop a <b>.json</b> rule file (imported) or a <b>.rules</b> / text file (loaded into the editor) onto the editor. Unsaved edits are kept as a draft in this browser.</div>
+</dialog>
+
 <script>
 "use strict";
 const $ = (sel) => document.querySelector(sel);
+
+try { const saved = localStorage.getItem("invariant.theme"); if (saved) document.documentElement.dataset.theme = saved; } catch (err) { /* storage unavailable */ }
+$("#theme-btn").addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("invariant.theme", next); } catch (err) { /* storage unavailable */ }
+});
 
 /** Build a DOM node. Text always goes in as text, never as markup. */
 function h(tag, attrs, ...children) {
@@ -436,94 +476,28 @@ function current() { return state.rules.find((r) => r.key === state.key) || null
 function dirty() { return editable() && $("#source").value !== state.saved; }
 function editable() { const r = current(); return !r || r.editable; }
 
-const GROUP_TITLES = {
-  "access-control": "Access control", "data-exposure": "Data exposure",
-  "headers": "Headers and cookies", "integrity": "Integrity and robustness",
-};
-const filter = { text: "", status: "all", tag: "" };
-const collapsed = new Set();
-
-function groupOf(rule) { return rule.tags && rule.tags.length ? rule.tags[0] : ""; }
-function groupTitle(tag) { return GROUP_TITLES[tag] || (tag ? tag.charAt(0).toUpperCase() + tag.slice(1).replace(/[-_]/g, " ") : "Other"); }
-function matches(rule) {
-  if (filter.status === "on" && !rule.enabled) return false;
-  if (filter.status === "off" && rule.enabled) return false;
-  if (filter.tag && !(rule.tags || []).includes(filter.tag)) return false;
-  const q = filter.text.trim().toLowerCase();
-  if (!q) return true;
-  return [rule.name, rule.id, rule.description, ...(rule.tags || [])].some((v) => String(v || "").toLowerCase().includes(q));
-}
-
-function ruleRow(rule) {
-  return h("li", { class: "rule", "aria-current": String(rule.key === state.key) },
+function renderRuleList() {
+  const row = (rule) => h("li", { class: "rule", "aria-current": String(rule.key === state.key) },
     h("label", { class: "switch", title: rule.enabled ? "Enabled: checked during exploration" : "Disabled" },
       h("input", { type: "checkbox", checked: rule.enabled, "aria-label": `Enable rule ${rule.name}`, onchange: (e) => toggleRule(rule, e.target.checked) }), h("span", {})),
-    h("button", { class: "open", onclick: () => openRule(rule.key), title: rule.description || "" },
+    h("button", { class: "open", onclick: () => openRule(rule.key) },
       h("span", { class: "nm" }, rule.name),
       h("span", { class: "meta" },
         rule.id && rule.id !== rule.name ? h("span", {}, rule.id) : null,
         rule.severity ? h("span", { class: "sev", dataset: { s: rule.severity } }, rule.severity) : null,
         rule.origin === "imported" ? h("span", { class: "tag", title: rule.filename }, "imported") : null,
         rule.valid ? null : h("span", { class: "tag bad" }, "needs fixing"))));
+  const q = $("#rule-filter").value.trim().toLowerCase();
+  const match = (r) => !q || [r.name, r.id, r.severity].filter(Boolean).some((v) => String(v).toLowerCase().includes(q));
+  const custom = state.rules.filter((r) => r.origin !== "builtin");
+  const builtin = state.rules.filter((r) => r.origin === "builtin");
+  $("#custom-rules").replaceChildren(...custom.filter(match).map(row));
+  $("#custom-empty").hidden = custom.length > 0;
+  $("#builtin-rules").replaceChildren(...builtin.filter(match).map(row));
+  $("#filter-empty").hidden = !q || custom.some(match) || builtin.some(match);
 }
 
-function renderRuleList() {
-  const shown = state.rules.filter(matches);
-  const custom = shown.filter((r) => r.origin !== "builtin");
-  const owned = state.rules.filter((r) => r.origin !== "builtin");
-  $("#custom-rules").replaceChildren(...custom.map(ruleRow));
-  $("#custom-empty").hidden = owned.length > 0;
-  $("#custom-label").hidden = owned.length === 0;
-  $("#custom-rules").hidden = owned.length === 0;
-
-  const groups = new Map();
-  for (const rule of state.rules.filter((r) => r.origin === "builtin")) {
-    const g = groupOf(rule);
-    if (!groups.has(g)) groups.set(g, []);
-    groups.get(g).push(rule);
-  }
-  const blocks = [];
-  for (const [tag, rules] of groups) {
-    const visible = rules.filter(matches);
-    if (!visible.length) continue;
-    const on = visible.filter((r) => r.enabled).length;
-    const open = !collapsed.has(tag);
-    const box = h("input", { type: "checkbox", "aria-label": `Enable or disable every shown rule in ${groupTitle(tag)}`, checked: on === visible.length,
-      onchange: (e) => bulk(visible.map((r) => r.key), e.target.checked) });
-    box.indeterminate = on > 0 && on < visible.length;
-    blocks.push(h("div", { class: "gh" },
-      h("button", { class: "chev", "aria-expanded": String(open), "aria-label": `${open ? "Collapse" : "Expand"} ${groupTitle(tag)}`, onclick: () => { open ? collapsed.add(tag) : collapsed.delete(tag); renderRuleList(); } }, open ? "▾" : "▸"),
-      box,
-      h("button", { class: "gt", onclick: () => { open ? collapsed.add(tag) : collapsed.delete(tag); renderRuleList(); } }, groupTitle(tag)),
-      h("span", { class: "cnt" }, `${on}/${visible.length} on`)));
-    if (open) blocks.push(h("ul", { class: "rules" }, visible.map(ruleRow)));
-  }
-  $("#builtin-groups").replaceChildren(...blocks);
-  const enabled = state.rules.filter((r) => r.enabled).length;
-  $("#rule-count").textContent = shown.length === state.rules.length
-    ? `${state.rules.length} rules, ${enabled} enabled`
-    : `${shown.length} of ${state.rules.length} rules shown, ${enabled} enabled`;
-  renderTagChips();
-}
-
-function renderTagChips() {
-  const counts = new Map();
-  for (const r of state.rules) for (const t of r.tags || []) counts.set(t, (counts.get(t) || 0) + 1);
-  $("#tag-chips").replaceChildren(...[...counts].sort((a, b) => a[0].localeCompare(b[0])).map(([tag, n]) =>
-    h("button", { class: "tagchip", "aria-pressed": String(filter.tag === tag), onclick: () => { filter.tag = filter.tag === tag ? "" : tag; renderRuleList(); } }, `${tag} ${n}`)));
-  $("#tag-active").textContent = filter.tag ? `· ${filter.tag}` : "";
-}
-
-async function bulk(keys, enabled) {
-  if (!keys.length) { banner("", "No rule matches the current filters."); return; }
-  try { state.rules = (await api("/api/rules/enabled-many", { keys, enabled })).rules; }
-  catch (err) { banner("bad", err.message, err.diagnostics); }
-  renderRuleList(); renderActiveRules();
-}
-$("#bulk-on").addEventListener("click", () => bulk(state.rules.filter(matches).map((r) => r.key), true));
-$("#bulk-off").addEventListener("click", () => bulk(state.rules.filter(matches).map((r) => r.key), false));
-$("#rule-search").addEventListener("input", (e) => { filter.text = e.target.value; renderRuleList(); });
-$("#rule-status").addEventListener("change", (e) => { filter.status = e.target.value; renderRuleList(); });
+$("#rule-filter").addEventListener("input", () => renderRuleList());
 
 async function toggleRule(rule, enabled) {
   try { state.rules = (await api("/api/rules/enabled", { key: rule.key, enabled })).rules; }
@@ -531,7 +505,12 @@ async function toggleRule(rule, enabled) {
   renderRuleList(); renderActiveRules();
 }
 
-function confirmDiscard() { return !dirty() || window.confirm("Discard the unsaved changes to this rule?"); }
+function confirmDiscard() {
+  if (!dirty()) return true;
+  if (!window.confirm("Discard the unsaved changes to this rule?")) return false;
+  clearDraft(state.key);
+  return true;
+}
 
 function openRule(key) {
   if (key === state.key || !confirmDiscard()) return;
@@ -542,7 +521,12 @@ function openRule(key) {
 function loadEditor(key, source, saved) {
   state.key = key; state.saved = saved; state.view = "text"; state.check = null;
   $("#source").value = source;
+  const rule = state.rules.find((r) => r.key === key);
+  const draft = rule && !rule.editable ? null : readDraft(key);
+  const restored = draft && typeof draft.text === "string" && draft.base === saved && draft.text !== saved;
+  if (restored) $("#source").value = draft.text;
   renderEditor(); renderRuleList(); validateNow();
+  if (restored) banner("", "Restored your unsaved edits from this browser. Save to keep them.");
 }
 
 function newRule(source) {
@@ -609,7 +593,9 @@ $("#source").addEventListener("keydown", (e) => {
     if (e.key === "Escape") { e.preventDefault(); acClose(); return; }
   }
   if ((e.ctrlKey && e.code === "Space") || (e.altKey && e.key === "/")) { e.preventDefault(); acUpdate(true); return; }
+  if (mod && !e.shiftKey && !e.altKey && (e.key === "f" || e.key === "h")) { e.preventDefault(); openFind(e.key === "h"); return; }
   if (el.readOnly) return;
+  if (!mod && !e.altKey && !e.isComposing && autoPair(e)) return;
 
   if (mod && e.key === "/") { e.preventDefault(); toggleComment(); return; }
   if (e.key === "Tab" && !mod && !e.altKey) {
@@ -727,6 +713,8 @@ async function toolAction(act) {
       try { const text = await navigator.clipboard.readText(); el.focus(); insertText(text); flash("Pasted"); }
       catch (err) { el.focus(); flash("The browser blocked clipboard access. Press Ctrl/⌘+V instead."); }
       break;
+    case "help": $("#shortcuts").showModal(); break;
+    case "find": openFind(false); break;
     case "comment": el.focus(); toggleComment(); break;
     case "clear":
       if (!el.value) break;
@@ -749,9 +737,6 @@ $("#toolbar").addEventListener("click", (e) => {
 });
 
 const SNIPPETS = {
-  id: 'id "AB-12"',
-  tags: 'tags "access-control"',
-  policy: 'policy ""',
   description: 'description ""',
   severity: "severity high",
   when: 'when operation.type == ""',
@@ -795,8 +780,7 @@ const KEYWORDS = [
   ["true", "boolean"], ["false", "boolean"], ["null", "no value"],
 ];
 const CLAUSE_HELP = {
-  rule: 'rule "name" { … }', id: "id used in reports (assigned from the name if omitted)", tags: "labels for grouping and filtering rules",
-  policy: "the reference policy's key for this rule", description: "what must never happen", severity: "critical | high | medium | low | info",
+  rule: 'rule "name" { … }', id: "id used in reports", description: "what must never happen", severity: "critical | high | medium | low | info",
   when: "which operations the rule covers", let: "a named value", observe: "application state after the operation",
   always: "must hold", assert: "alias of always", never: "must not hold", message: "text of a finding", pass_message: "text of a pass", evidence: "evidence attached to a violation",
 };
@@ -1019,6 +1003,234 @@ $("#source").addEventListener("blur", acClose);
 $("#source").addEventListener("scroll", acClose);
 $("#source").addEventListener("mousedown", acClose);
 
+// -------------------------------------------------- find, hover docs, auto-pair
+const find = { matches: [], index: -1 };
+function openFind(replace) {
+  const el = $("#source");
+  const bar = $("#findbar");
+  const selected = el.value.slice(el.selectionStart, el.selectionEnd);
+  bar.hidden = false;
+  if (selected && !selected.includes("\n")) $("#find-input").value = selected;
+  findRefresh(true);
+  const target = replace && !el.readOnly ? $("#replace-input") : $("#find-input");
+  target.focus(); target.select();
+}
+function closeFind() { $("#findbar").hidden = true; find.matches = []; $("#source").focus(); }
+function findMatches() {
+  const q = $("#find-input").value;
+  if (!q) return [];
+  const cs = $("#find-case").checked;
+  const hay = cs ? $("#source").value : $("#source").value.toLowerCase();
+  const needle = cs ? q : q.toLowerCase();
+  const out = [];
+  for (let i = hay.indexOf(needle); i !== -1; i = hay.indexOf(needle, i + Math.max(needle.length, 1))) out.push(i);
+  return out;
+}
+function findRefresh(jump) {
+  find.matches = findMatches();
+  const n = find.matches.length;
+  if (!n) { find.index = -1; $("#find-count").textContent = $("#find-input").value ? "No results" : ""; return; }
+  if (jump) {
+    const caret = $("#source").selectionStart;
+    const at = find.matches.findIndex((m) => m >= caret);
+    findSelect(at === -1 ? 0 : at);
+  } else { find.index = Math.min(find.index, n - 1); $("#find-count").textContent = `${find.index + 1} of ${n}`; }
+}
+function findSelect(i) {
+  const el = $("#source");
+  const n = find.matches.length;
+  if (!n) return;
+  find.index = ((i % n) + n) % n;
+  const start = find.matches[find.index];
+  el.setSelectionRange(start, start + $("#find-input").value.length);
+  const before = el.value.slice(0, start).split("\n");
+  const lineH = parseFloat(getComputedStyle(el).lineHeight) || 20;
+  const line = before.length - 1;
+  if (line * lineH < el.scrollTop || (line + 2) * lineH > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, (line - 4) * lineH);
+  $("#find-count").textContent = `${find.index + 1} of ${n}`;
+}
+$("#find-input").addEventListener("input", () => findRefresh(true));
+$("#find-case").addEventListener("change", () => findRefresh(true));
+$("#find-next").addEventListener("click", () => findSelect(find.index + 1));
+$("#find-prev").addEventListener("click", () => findSelect(find.index - 1));
+$("#find-close").addEventListener("click", closeFind);
+$("#findbar").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { e.preventDefault(); closeFind(); }
+  else if (e.key === "Enter" && e.target.id !== "replace-input") { e.preventDefault(); findSelect(find.index + (e.shiftKey ? -1 : 1)); }
+  else if (e.key === "Enter") { e.preventDefault(); $("#replace-one").click(); }
+});
+$("#replace-one").addEventListener("click", () => {
+  const el = $("#source");
+  if (el.readOnly || find.index < 0) return;
+  const start = find.matches[find.index];
+  const len = $("#find-input").value.length;
+  const at = start;
+  replaceRange(start, start + len, $("#replace-input").value);
+  find.matches = findMatches();
+  const next = find.matches.findIndex((m) => m >= at + $("#replace-input").value.length);
+  if (find.matches.length) findSelect(next === -1 ? 0 : next); else { find.index = -1; $("#find-count").textContent = "No results"; }
+  $("#find-input").focus();
+});
+$("#replace-all").addEventListener("click", () => {
+  const el = $("#source");
+  const q = $("#find-input").value;
+  if (el.readOnly || !q || !find.matches.length) return;
+  const count = find.matches.length;
+  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $("#find-case").checked ? "g" : "gi");
+  const text = el.value.replace(re, () => $("#replace-input").value);
+  el.focus(); el.select(); insertText(text);   // one undo step
+  findRefresh(false);
+  $("#find-count").textContent = `Replaced ${count}`;
+  $("#find-input").focus();
+});
+$("#source").addEventListener("input", () => { if (!$("#findbar").hidden) findRefresh(false); });
+
+// Hover documentation, from the same schema the autocomplete uses.
+function ensureModel() { if (state.boot && !acModel) buildAcModel(); return acModel; }
+function hideTip() { $("#tip").hidden = true; }
+let tipTimer = null;
+function describeAt(line, col, before) {
+  if (!/\w/.test(line[col] || "")) return null;
+  let a = col, b = col;
+  while (a > 0 && /[\w.\[\]]/.test(line[a - 1])) a--;
+  while (b < line.length && /\w/.test(line[b])) b++;
+  const word = /\w+$/.exec(line.slice(0, b))[0];
+  const full = line.slice(a, b);
+  const parts = full.split(".").map((x) => x.replace(/\[[^\]]*\]/g, ""));
+  const m = ensureModel();
+  if (parts.length > 1) {
+    const holder = fieldsAt(parts.slice(0, -1));
+    const f = holder && holder.find((x) => x.name === word);
+    return f ? { name: parts.join("."), type: f.type, doc: [f.doc, f.optional ? "May be absent." : "", f.late ? "Known only after the response." : ""].filter(Boolean).join(" ") } : null;
+  }
+  if (line[b] === "(") {
+    const fn = m.functions.find((x) => x.name === word);
+    if (fn) return { name: fn.signature, doc: fn.doc };
+    const probe = m.probes.find((x) => x.name === word);
+    if (probe) return { name: `${probe.name}(${probe.params.map((x) => x.name).join(", ")})`, type: probe.returns, doc: probe.doc };
+  }
+  const root = m.roots.find((x) => x.name === word);
+  if (root) return { name: root.name, type: root.type, doc: root.doc };
+  if (before.trim() === "" && CLAUSE_HELP[word]) return { name: word, doc: CLAUSE_HELP[word] };
+  const kw = KEYWORDS.find(([k]) => k === word);
+  if (kw) return { name: kw[0], doc: kw[1] };
+  const local = localNames($("#source").value).get(word);
+  if (local) return { name: word, doc: local === "variable" ? "Bound by a quantifier or comprehension." : `Defined by ${local} in this rule.` };
+  return null;
+}
+$("#source").addEventListener("mousemove", (e) => {
+  clearTimeout(tipTimer);
+  const el = e.target;
+  if (ac.open || !state.boot) return hideTip();
+  tipTimer = setTimeout(() => {
+    const cs = getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    const ctx = (acPlace.ctx ||= document.createElement("canvas").getContext("2d"));
+    ctx.font = `${cs.fontSize} ${cs.fontFamily}`;
+    const charW = ctx.measureText("M").width;
+    const lineH = parseFloat(cs.lineHeight) || 20;
+    const row = Math.floor((e.clientY - rect.top - parseFloat(cs.paddingTop) + el.scrollTop) / lineH);
+    const col = Math.floor((e.clientX - rect.left - parseFloat(cs.paddingLeft) + el.scrollLeft) / charW);
+    const lines = el.value.split("\n");
+    const line = lines[row];
+    if (line == null || col < 0 || col >= line.length) return hideTip();
+    const upto = line.slice(0, col);
+    const sc = scanContext(upto);
+    if (sc.comment || sc.quote) return hideTip();
+    let info = null;
+    try { info = describeAt(line, col, upto.replace(/\w*$/, "")); } catch (err) { info = null; }
+    if (!info) return hideTip();
+    const tip = $("#tip");
+    tip.replaceChildren(h("div", {}, h("span", { class: "p" }, info.name), info.type ? h("span", { class: "t" }, info.type) : null), info.doc ? h("div", { class: "d" }, info.doc) : null);
+    tip.hidden = false;
+    const wrap = $("#editor-box");
+    const x = $("#gutter").offsetWidth + parseFloat(cs.paddingLeft) + col * charW - el.scrollLeft;
+    const y = parseFloat(cs.paddingTop) + row * lineH - el.scrollTop;
+    tip.style.left = Math.max($("#gutter").offsetWidth, Math.min(x, wrap.clientWidth - tip.offsetWidth - 8)) + "px";
+    tip.style.top = (y + lineH + tip.offsetHeight + 4 > wrap.clientHeight ? Math.max(0, y - tip.offsetHeight - 4) : y + lineH + 2) + "px";
+  }, 250);
+});
+for (const type of ["mouseleave", "scroll", "keydown", "mousedown", "blur"]) $("#source").addEventListener(type, () => { clearTimeout(tipTimer); hideTip(); });
+
+// Auto-close brackets and quotes; typing the closer steps over it.
+const PAIRS = { "(": ")", "[": "]", "{": "}", '"': '"', "'": "'" };
+function autoPair(e) {
+  const el = $("#source");
+  const { selectionStart: a, selectionEnd: b, value } = el;
+  const next = value[b] || "";
+  const prev = value[a - 1] || "";
+  const before = value.slice(value.lastIndexOf("\n", a - 1) + 1, a);
+  const ctx = scanContext(before);
+  if (ctx.comment) return false;
+  const closers = new Set(Object.values(PAIRS));
+  if (e.key === "Backspace" && a === b && PAIRS[prev] && PAIRS[prev] === next) {
+    e.preventDefault(); el.setSelectionRange(a - 1, a + 1); insertText(""); return true;
+  }
+  if (closers.has(e.key) && a === b && next === e.key) {
+    e.preventDefault(); el.setSelectionRange(a + 1, a + 1); return true;   // step over the closer
+  }
+  if (!PAIRS[e.key]) return false;
+  if (a !== b) {   // wrap the selection
+    e.preventDefault();
+    const inner = value.slice(a, b);
+    insertText(e.key + inner + PAIRS[e.key]);
+    el.setSelectionRange(a + 1, a + 1 + inner.length);
+    return true;
+  }
+  if (e.key === '"' || e.key === "'") {
+    if (ctx.quote || /\w/.test(prev) || /\w/.test(next)) return false;   // closing, or an apostrophe inside a word
+  } else if (/\w/.test(next)) return false;
+  e.preventDefault();
+  insertText(e.key + PAIRS[e.key]);
+  el.setSelectionRange(a + 1, a + 1);
+  return true;
+}
+
+// ------------------------------------------------------------ drafts, drop, help
+const DRAFT_PREFIX = "invariant.draft.";
+function draftKey(key) { return DRAFT_PREFIX + (key == null ? "new" : key); }
+function readDraft(key) { try { return JSON.parse(localStorage.getItem(draftKey(key))); } catch (err) { return null; } }
+function writeDraft(key, text, base) { try { localStorage.setItem(draftKey(key), JSON.stringify({ text, base })); } catch (err) { /* storage unavailable */ } }
+function clearDraft(key) { try { localStorage.removeItem(draftKey(key)); } catch (err) { /* storage unavailable */ } }
+
+let draftTimer = null;
+$("#source").addEventListener("input", () => {
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => {
+    if (state.view !== "text" || $("#source").readOnly) return;
+    if (dirty()) writeDraft(state.key, $("#source").value, state.saved); else clearDraft(state.key);
+  }, 400);
+});
+
+const box = $("#editor-box");
+for (const type of ["dragenter", "dragover"]) box.addEventListener(type, (e) => {
+  if (![...(e.dataTransfer?.types || [])].includes("Files")) return;
+  e.preventDefault(); box.classList.add("drop");
+});
+box.addEventListener("dragleave", (e) => { if (!box.contains(e.relatedTarget)) box.classList.remove("drop"); });
+box.addEventListener("drop", async (e) => {
+  e.preventDefault(); box.classList.remove("drop");
+  const file = e.dataTransfer?.files?.[0];
+  if (!file) return;
+  if (file.size > 1_000_000) { banner("bad", `${file.name} is too large to be a rule file.`); return; }
+  if (/\.json$/i.test(file.name)) { importFile(file); return; }
+  if ($("#source").readOnly) { banner("", "This rule is read only. Use Duplicate to edit a copy, then drop the file."); return; }
+  if (!confirmDiscard()) return;
+  const el = $("#source");
+  el.focus(); el.select();
+  insertText(await file.text());
+  flash(`Loaded ${file.name}`);
+});
+
+$("#shortcuts-close").addEventListener("click", () => $("#shortcuts").close());
+document.addEventListener("keydown", (e) => {
+  const t = e.target;
+  if (e.key !== "?" || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;
+  e.preventDefault();
+  if (!$("#shortcuts").open) $("#shortcuts").showModal();
+});
+
 let validation = 0;
 async function validateNow() {
   if (state.view === "json") return;
@@ -1042,9 +1254,7 @@ function renderValidation() {
   const status = $("#status-text");
   if (check.ok) {
     const names = check.rules.map((r) => `"${r.name}"`).join(", ");
-    const assigned = Object.entries(check.assigned_ids || {});
-    status.replaceChildren(h("span", { class: "tag good" }, "valid"), ` ${check.rules.length === 1 ? "Rule" : check.rules.length + " rules"} ${names} can be run.`,
-      ...(assigned.length ? [` No id given: saving assigns ${assigned.map(([n, id]) => `${id} to "${n}"`).join(", ")}.`] : []));
+    status.replaceChildren(h("span", { class: "tag good" }, "valid"), ` ${check.rules.length === 1 ? "Rule" : check.rules.length + " rules"} ${names} can be run.`);
   } else {
     const n = check.diagnostics.length;
     status.replaceChildren(h("span", { class: "tag bad" }, `${n} problem${n === 1 ? "" : "s"}`), " Fix these before the rule can run.");
@@ -1094,6 +1304,7 @@ async function save() {
   const source = $("#source").value;
   try {
     const out = await api("/api/rules", { source, key: state.key });
+    clearDraft(state.key);
     state.rules = out.rules;
     const first = state.rules.find((r) => r.key === out.saved[0]);
     loadEditor(first.key, first.source, first.source);
@@ -1109,6 +1320,7 @@ $("#delete-btn").addEventListener("click", async () => {
   if (!rule || !window.confirm(`Delete the rule "${rule.name}"? This cannot be undone.`)) return;
   try {
     state.rules = (await api("/api/rules/delete", { key: rule.key })).rules;
+    clearDraft(rule.key);
     loadEditor(null, state.boot.language.template, state.boot.language.template);
     banner("good", `Deleted "${rule.name}".`);
   } catch (err) { banner("bad", err.message, err.diagnostics); }
@@ -1127,10 +1339,13 @@ $("#duplicate-btn").addEventListener("click", () => {
 
 // ----------------------------------------------------------- import/export
 $("#upload-btn").addEventListener("click", () => $("#upload-input").click());
-$("#upload-input").addEventListener("change", async (e) => {
+$("#upload-input").addEventListener("change", (e) => {
   const file = e.target.files[0];
   e.target.value = "";
-  if (!file) return;
+  if (file) importFile(file);
+});
+
+async function importFile(file) {
   if (file.size > 1_000_000) { banner("bad", `${file.name} is too large to be a rule file.`); return; }
   try {
     const out = await api("/api/rules/import", { filename: file.name, content: await file.text(), replace: $("#import-replace").checked });
@@ -1140,7 +1355,7 @@ $("#upload-input").addEventListener("change", async (e) => {
     banner("good", `Imported ${names.length} rule${names.length === 1 ? "" : "s"} from ${file.name}: ${names.join(", ")}.`);
     if (!dirty()) openRule(out.imported[0]);
   } catch (err) { banner("bad", err.message, err.diagnostics); }
-});
+}
 
 function download(name, text, type) {
   const url = URL.createObjectURL(new Blob([text], { type }));
@@ -1177,8 +1392,7 @@ function renderReference() {
   $("#ref-functions").replaceChildren(...lang.functions.map((f) => h("div", { class: "field" }, h("span", { class: "n" }, f.signature), h("span", {}), h("span", { class: "d" }, f.doc))));
   $("#ref-syntax").textContent = [
     'rule "name" {',
-    '    id "AB-12"                    # optional; assigned from the name by the Settings algorithm',
-    '    tags "access-control", "tenancy"   # optional; group and filter rules in the console',
+    '    id "SHORT-ID"                 # optional; defaults to the name',
     '    description "what must never happen"',
     `    severity ${lang.severities.join(" | ")}`,
     '    when <condition>              # which operations the rule covers (no response fields)',
@@ -1283,6 +1497,7 @@ function renderResult(selected = 0) {
       h("div", { class: "row", style: "margin-top:14px" },
         report.scenario ? h("button", { class: "btn ghost sm", onclick: () => runReplay(scan.options) }, "Replay on this build") : null,
         report.scenario && scan.options.length ? h("button", { class: "btn ghost sm", onclick: () => runReplay([]) }, "Replay on the fixed build") : null,
+        steps.length ? h("button", { class: "btn ghost sm", onclick: () => copySequence(title, f, steps, stepsText) }, "Copy sequence") : null,
         h("button", { class: "btn ghost sm", onclick: openViewer }, "Open full report"),
         h("button", { class: "btn ghost sm", onclick: () => download("invariant-report.json", JSON.stringify(report, null, 2) + "\n", "application/json") }, "Download report JSON")),
       replays,
@@ -1307,6 +1522,17 @@ function renderResult(selected = 0) {
   if (f) cards.push(h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", {}, "Evidence")), h("div", { class: "card-b" }, h("pre", { class: "code" }, JSON.stringify(f.evidence, null, 2)))));
   cards.push(h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", {}, "Rules checked on every step")), h("div", { class: "card-b chips" }, scan.rules_used.map((r) => h("span", { class: "chip sev", dataset: { s: r.severity } }, r.id)))));
   $("#result").replaceChildren(...cards);
+}
+
+async function copySequence(title, f, steps, stepsText) {
+  const lines = [title, ""];
+  steps.forEach((s, i) => {
+    const hit = f && s.index === f.step_index;
+    lines.push(`${s.index}. ${stepsText[i]}${s.status == null ? "" : `  [HTTP ${s.status}]`}${hit ? "  <-- " + (f.property_id || "finding") : ""}`);
+  });
+  if (f && f.summary) lines.push("", `Why: ${f.summary}`);
+  const ok = await copyText(lines.join("\n"));
+  banner(ok ? "good" : "bad", ok ? "Copied the operation sequence." : "The browser blocked clipboard access.");
 }
 
 async function runReplay(options) {
