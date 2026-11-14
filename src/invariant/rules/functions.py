@@ -32,6 +32,7 @@ Impl = Callable[[list[Value]], Value]
 
 @dataclass(frozen=True)
 class Function:
+    """A built-in function: signature, type check and implementation."""
     name: str
     signature: str
     doc: str
@@ -44,7 +45,7 @@ class Function:
 
 
 def _is(t: Type, *kinds: type) -> bool:
-    return isinstance(t, AnyType) or isinstance(t, kinds)
+    return isinstance(t, (AnyType, *kinds))
 
 
 def _bad(name: str, position: str, expected: str, got: Type) -> str:
@@ -313,4 +314,5 @@ FUNCTIONS: dict[str, Function] = {
 
 
 def describe_functions() -> list[dict[str, str]]:
+    """Name, signature and help of every function, for the editor."""
     return [{"name": f.name, "signature": f.signature, "doc": f.doc} for f in FUNCTIONS.values()]

@@ -9,13 +9,13 @@ import json
 import threading
 
 import pytest
-from meridian_support import DEFECTS, MERIDIAN, copy_project
 
 from invariant.console import dialogs
 from invariant.console.app import ConsoleApp, ConsoleError
 from invariant.console.project import MANIFEST_NAME, RunningProject, load_manifest
 from invariant.console.server import make_server
 from invariant.console.store import RuleStore
+from meridian_support import DEFECTS, MERIDIAN, copy_project
 
 
 @pytest.fixture

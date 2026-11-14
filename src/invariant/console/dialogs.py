@@ -21,6 +21,7 @@ TIMEOUT = 600
 @dataclass(frozen=True)
 class Choice:
     #: What the person picked; None when they cancelled.
+    """Outcome of a folder dialog: a path, or a cancellation."""
     path: Path | None
     #: False when this machine has no folder dialog to open (use the path field).
     supported: bool = True
@@ -28,6 +29,7 @@ class Choice:
 
 
 def available() -> bool:
+    """True if this machine has a native folder chooser the console can open."""
     return _command(None) is not None
 
 
@@ -67,7 +69,7 @@ def choose_folder(start: Path | None = None) -> Choice:
     if argv is None:
         return Choice(None, supported=False)
     try:
-        done = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        done = subprocess.run(
             argv, capture_output=True, text=True, timeout=TIMEOUT, check=False
         )
     except (OSError, subprocess.TimeoutExpired) as exc:

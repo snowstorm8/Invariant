@@ -1,7 +1,7 @@
 import pytest
-from support import make_state
 
 from invariant.core.state import ModelState, UnknownRefError
+from support import make_state
 
 
 def test_lookup_unknown_refs_raise():

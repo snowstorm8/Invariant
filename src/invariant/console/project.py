@@ -57,6 +57,7 @@ class ProjectError(ValueError):
 
 @dataclass(frozen=True)
 class Manifest:
+    """A validated ``invariant.toml``: how to start the application and what contract it speaks."""
     folder: Path
     name: str
     description: str
@@ -75,6 +76,7 @@ class Manifest:
         return argv
 
     def describe(self) -> dict[str, Any]:
+        """JSON summary shown in the console before the application is started."""
         return {
             "folder": str(self.folder),
             "name": self.name,
@@ -171,6 +173,7 @@ class _SharedAdapter(HttpAdapter):
     """An adapter over the project's one running process; closing it leaves the process up."""
 
     def close(self) -> None:
+        """Do nothing: the process behind a project outlives any one adapter."""
         pass
 
 
@@ -187,19 +190,23 @@ class RunningProject:
 
     @property
     def url(self) -> str:
+        """Base URL of the running application."""
         return f"http://127.0.0.1:{self.port}"
 
     @property
     def running(self) -> bool:
+        """True while the application process is alive."""
         return self._process is not None and self._process.poll() is None
 
     def log_tail(self, limit: int = 2000) -> str:
+        """The last ``limit`` characters the application wrote, for error messages."""
         self._log.flush()
         self._log.seek(0)
         text = self._log.read().decode("utf-8", "replace")
         return text[-limit:]
 
     def start(self) -> None:
+        """Start the command on a free loopback port and wait until its health path answers."""
         with self._lock:
             if self.running:
                 return
@@ -209,7 +216,7 @@ class RunningProject:
             env.update(self.manifest.env)
             argv = self.manifest.argv(self.port)
             try:
-                self._process = subprocess.Popen(  # noqa: S603 - the person confirmed this command
+                self._process = subprocess.Popen(
                     argv,
                     cwd=self.manifest.folder,
                     env=env,
@@ -254,6 +261,7 @@ class RunningProject:
         )
 
     def stop(self) -> None:
+        """Terminate the application process (and kill it if it does not exit)."""
         with self._lock:
             if self._client is not None:
                 self._client.close()
@@ -268,11 +276,13 @@ class RunningProject:
                     process.wait(timeout=5)
 
     def adapter(self) -> Adapter:
+        """The shared adapter for this application."""
         if not self.running or self._client is None:
             raise ProjectError("the application is not running; open the project again")
         return _SharedAdapter(self._client, reset_path=self.manifest.reset)
 
     def state(self) -> dict[str, Any]:
+        """JSON status for the console."""
         return {
             **self.manifest.describe(),
             "running": self.running,
@@ -281,6 +291,7 @@ class RunningProject:
         }
 
     def console_target(self) -> ConsoleTarget:
+        """This application as a target the console can explore."""
         return ConsoleTarget(
             name=self.manifest.name,
             description=self.manifest.description,

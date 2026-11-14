@@ -222,6 +222,7 @@ def _int(raw: object, name: str, *, minimum: int | None = None, optional: bool =
 
 
 class ConsoleApp:
+    """All console behaviour over plain JSON: projects, rules, settings, exploration and replay. The HTTP server only routes to it."""
     def __init__(
         self,
         target: ConsoleTarget | None = None,
@@ -268,6 +269,7 @@ class ConsoleApp:
     # -- reference -----------------------------------------------------------
 
     def bootstrap(self) -> dict[str, Any]:
+        """Everything the page needs on load: target, project state, rules, settings and the rule language."""
         return {
             "version": __version__,
             "target": self._target_json(),
@@ -305,6 +307,7 @@ class ConsoleApp:
     # -- project (the application under test) -------------------------------------------
 
     def project_state(self) -> dict[str, Any]:
+        """The current project (none, starting, running or failed) and the dialog capability."""
         running = self._project
         return {
             "open": running is not None,
@@ -325,6 +328,7 @@ class ConsoleApp:
         return {"supported": True, **self._inspect(choice.path)}
 
     def project_inspect(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Read and validate the manifest of a folder without running anything."""
         raw = request.get("path")
         if not isinstance(raw, str) or not raw.strip():
             raise ConsoleError("path must be a folder path")
@@ -360,6 +364,7 @@ class ConsoleApp:
         return {"project": self.project_state(), "target": self._target_json(), "rules": self.list_rules()}
 
     def project_close(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Stop the running application and detach it from the console."""
         with self._lock:
             self._close_project()
         return {"project": self.project_state(), "target": self._target_json()}
@@ -489,6 +494,7 @@ class ConsoleApp:
         }
 
     def list_rules(self) -> list[dict[str, Any]]:
+        """The shipped and stored rules with their displayed ids and switches."""
         with self._lock:
             disabled = set(self.store.data.disabled_builtin)
             pairs = self._builtin_pairs()
@@ -584,6 +590,7 @@ class ConsoleApp:
     # -- settings ------------------------------------------------------------
 
     def get_settings(self) -> dict[str, Any]:
+        """The current console settings (id algorithm and its choices)."""
         return {
             "id_algorithm": self.store.data.id_algorithm,
             "default_id_algorithm": rule_ids.DEFAULT_ALGORITHM,
@@ -775,6 +782,7 @@ class ConsoleApp:
             return {"imported": imported, "rules": self.list_rules()}
 
     def set_enabled(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Switch one rule, or many at once, on or off."""
         key, enabled = request.get("key"), request.get("enabled")
         if not isinstance(key, str) or not isinstance(enabled, bool):
             raise ConsoleError("expected {key: string, enabled: boolean}")
@@ -792,6 +800,7 @@ class ConsoleApp:
             return {"rules": self.list_rules()}
 
     def delete_rule(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Delete a stored rule; shipped rules cannot be deleted."""
         key = request.get("key")
         if not isinstance(key, str):
             raise ConsoleError("expected {key: string}")
@@ -925,4 +934,5 @@ class ConsoleApp:
         }
 
     def report_html(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Render a report as the self-contained HTML page."""
         return {"html": render_html(Report.model_validate(request.get("report")))}

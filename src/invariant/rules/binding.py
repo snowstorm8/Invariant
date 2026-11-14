@@ -21,6 +21,8 @@ from .values import Value
 
 
 class RuleBinding(ABC):
+    """Connects the rule language to an application: the schema rules are checked against and the values they read."""
+
     @property
     @abstractmethod
     def schema(self) -> ContextSchema:

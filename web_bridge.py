@@ -28,13 +28,14 @@ sys.path.insert(0, "examples")
 from invariant.analysis.reproduction import replay  # noqa: E402
 from invariant.console.app import ConsoleApp, ruleset_from_request  # noqa: E402
 from invariant.evaluation.evaluator import evaluator_for_report  # noqa: E402
-from invariant.integrations.document_saas import SCHEMA  # noqa: E402
 from invariant.exploration.runner import explore  # noqa: E402
+from invariant.integrations.document_saas import SCHEMA  # noqa: E402
 from invariant.properties.registry import CATALOG  # noqa: E402
 from invariant.reporting.models import Report  # noqa: E402
 from invariant.reporting.reporter import render_html  # noqa: E402
 from vulnerable_saas.app.models import KNOWN_DEFECTS  # noqa: E402
 from vulnerable_saas.target import DEFECTS, adapter_for, console_target  # noqa: E402
+
 
 def target_name(defects: frozenset[str]) -> str:
     return "vulnerable_saas[" + (",".join(sorted(defects)) or "fixed") + "]"
@@ -124,6 +125,6 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         json.dump({"error": f"{type(exc).__name__}: {exc}"}, sys.stdout)
         sys.exit(1)

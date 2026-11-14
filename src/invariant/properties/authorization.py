@@ -70,14 +70,17 @@ class Decision:
 
     @classmethod
     def permit(cls, reason: str) -> Decision:
+        """A decision that allows the operation, with the reason."""
         return cls(permit_reason=reason)
 
     @classmethod
     def deny(cls, *denials: Denial) -> Decision:
+        """A decision that refuses the operation, with each rule that forbids it."""
         return cls(denials=denials)
 
     @property
     def allowed(self) -> bool:
+        """True if the policy authorises the operation."""
         return not self.denials
 
     @property
@@ -89,9 +92,11 @@ class Decision:
 
     @property
     def property_ids(self) -> tuple[str, ...]:
+        """Ids of every rule behind a denial."""
         return tuple(d.property_id for d in self.denials)
 
     def denial_for(self, property_id: str) -> Denial | None:
+        """The denial recorded for this rule, if any."""
         return next((d for d in self.denials if d.property_id == property_id), None)
 
 

@@ -1,11 +1,11 @@
 """Snapshot parsing and comparison: None is 'unusable', never 'empty'."""
 
 import pytest
-from support import obs
 
 from invariant.adapters.base import Observation
 from invariant.evaluation.evaluator import Evaluator
 from invariant.evaluation.snapshots import diff_snapshots, parse_snapshot
+from support import obs
 
 DOC = {"id": "doc_6", "content": "secret <<INV:3>>", "version": 1}
 

@@ -1,7 +1,6 @@
 """Evaluating rules, on an integration that has nothing to do with the demo SaaS."""
 
 import pytest
-from rule_support import BANK_SCHEMA, BankBinding, bank_rules, bank_step, judge
 
 from invariant.evaluation.violations import Outcome
 from invariant.rules import (
@@ -15,6 +14,7 @@ from invariant.rules import (
 )
 from invariant.rules.interpreter import Interpreter
 from invariant.rules.values import LazyContext, Undefined
+from rule_support import BANK_SCHEMA, BankBinding, bank_rules, bank_step, judge
 
 OK = {"ok": True, "code": 200, "receipt": {"id": "r1", "amount": 50}}
 REFUSED = {"ok": False, "code": 403}

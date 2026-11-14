@@ -18,7 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 # The deliberately vulnerable demonstration application.
 demo = ["fastapi>=0.110", "uvicorn>=0.30"]
-dev = ["fastapi>=0.110", "uvicorn>=0.30", "pytest>=8", "mypy>=1.10"]
+dev = ["fastapi>=0.110", "uvicorn>=0.30", "pytest>=8", "mypy>=1.10", "ruff>=0.5"]
 
 [project.scripts]
 invariant = "invariant.cli.main:app"
@@ -39,3 +39,13 @@ strict = true
 files = ["src/invariant", "examples/vulnerable_saas", "examples/meridian_docs"]
 mypy_path = "src:examples:examples/meridian_docs"
 explicit_package_bases = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+src = ["src", "examples", "tests"]
+
+[tool.ruff.lint]
+# pyflakes, pycodestyle, import order, pyupgrade, bugbear, simplify, unused arguments off
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "RUF100"]
+ignore = ["E501", "B008", "SIM108"]

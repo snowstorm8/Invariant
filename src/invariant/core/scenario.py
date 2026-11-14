@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class Role(StrEnum):
+    """A user's role within its organization."""
     ADMIN = "admin"
     MEMBER = "member"
     VIEWER = "viewer"
@@ -24,12 +25,14 @@ class _Op(BaseModel):
 
 
 class CreateOrg(_Op):
+    """Setup: create an organization."""
     kind: Literal["create_org"] = "create_org"
     ref: str
     name: str
 
 
 class CreateUser(_Op):
+    """Setup: create a user with a role in an organization."""
     kind: Literal["create_user"] = "create_user"
     ref: str
     org: str
@@ -37,6 +40,7 @@ class CreateUser(_Op):
 
 
 class CreateDocument(_Op):
+    """An actor creates a document with some content."""
     kind: Literal["create_document"] = "create_document"
     ref: str
     actor: str
@@ -44,12 +48,14 @@ class CreateDocument(_Op):
 
 
 class ReadDocument(_Op):
+    """An actor reads a document."""
     kind: Literal["read_document"] = "read_document"
     actor: str
     doc: str
 
 
 class UpdateDocument(_Op):
+    """An actor replaces a document's content."""
     kind: Literal["update_document"] = "update_document"
     actor: str
     doc: str
@@ -57,12 +63,14 @@ class UpdateDocument(_Op):
 
 
 class DeleteDocument(_Op):
+    """An actor deletes a document."""
     kind: Literal["delete_document"] = "delete_document"
     actor: str
     doc: str
 
 
 class ListDocuments(_Op):
+    """An actor lists the documents of their organization."""
     kind: Literal["list_documents"] = "list_documents"
     actor: str
 
@@ -96,6 +104,7 @@ class Scenario(BaseModel):
 
 
 def describe_op(op: object) -> str:
+    """One-line, human-readable description of an operation."""
     match op:
         case CreateOrg():
             return f"provision org {op.ref}"

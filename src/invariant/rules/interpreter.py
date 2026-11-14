@@ -64,6 +64,7 @@ class Interpreter:
         self._let_values: dict[str, Value] = {}
 
     def evaluate(self, expr: Expr) -> Value:
+        """Evaluate an expression to a value (Undefined if it depends on something missing)."""
         self.budget -= 1
         if self.budget < 0:
             raise BudgetExceededError

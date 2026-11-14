@@ -558,6 +558,7 @@ def expr_to_json(expr: Expr) -> Any:
 
 
 def rule_to_json(rule: Rule, *, enabled: bool = True) -> dict[str, Any]:
+    """A rule in the JSON rule format."""
     out: dict[str, Any] = {"name": rule.name}
     if rule.id != rule.name:
         out["id"] = rule.id
@@ -592,6 +593,7 @@ def rule_to_json(rule: Rule, *, enabled: bool = True) -> dict[str, Any]:
 def document_to_json(
     rules: tuple[Rule, ...] | list[Rule], disabled: frozenset[str] | set[str] = frozenset()
 ) -> dict[str, Any]:
+    """A whole document in the JSON rule format."""
     return {
         "version": FORMAT_VERSION,
         "rules": [rule_to_json(r, enabled=r.id not in disabled) for r in rules],

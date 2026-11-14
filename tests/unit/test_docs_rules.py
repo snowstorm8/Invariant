@@ -8,13 +8,12 @@ written as a promise about a correct application must hold.
 import re
 from pathlib import Path
 
-from meridian_support import MeridianAdapter
-
 from invariant.exploration.runner import explore
 from invariant.integrations.document_saas import DOCUMENT_SAAS
 from invariant.rules.engine import RuleSet
 from invariant.rules.parser import parse_rules
 from invariant.rules.validator import validate_rule
+from meridian_support import MeridianAdapter
 
 DOCS = Path(__file__).resolve().parent.parent.parent / "docs"
 BLOCK = re.compile(r"^```rule\n(.*?)^```", re.S | re.M)

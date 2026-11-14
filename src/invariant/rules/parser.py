@@ -70,6 +70,7 @@ class _Fail(Exception):
 
 
 class Parser:
+    """Recursive-descent parser for the rule language."""
     def __init__(self, tokens: list[Token]) -> None:
         self.tokens = tokens
         self.pos = 0
@@ -79,43 +80,52 @@ class Parser:
 
     @property
     def tok(self) -> Token:
+        """The current token."""
         return self.tokens[self.pos]
 
     def advance(self) -> Token:
+        """Consume and return the current token."""
         token = self.tok
         if token.kind != "eof":
             self.pos += 1
         return token
 
     def at_punct(self, value: str) -> bool:
+        """True if the current token is this punctuation."""
         return self.tok.kind == "punct" and self.tok.value == value
 
     def at_word(self, value: str) -> bool:
+        """True if the current token is this keyword."""
         return self.tok.kind == "ident" and self.tok.value == value
 
     def eat_punct(self, value: str) -> bool:
+        """Consume the punctuation if present; report whether it was."""
         if self.at_punct(value):
             self.pos += 1
             return True
         return False
 
     def eat_word(self, value: str) -> bool:
+        """Consume the keyword if present; report whether it was."""
         if self.at_word(value):
             self.pos += 1
             return True
         return False
 
     def expect_punct(self, value: str, context: str) -> Token:
+        """Consume the punctuation or raise a syntax error naming ``context``."""
         if not self.at_punct(value):
             raise _Fail(f"expected '{value}' {context}, found {self.tok.describe()}", self.tok)
         return self.advance()
 
     def expect_string(self, what: str) -> Token:
+        """Consume a string literal or raise a syntax error."""
         if self.tok.kind != "string":
             raise _Fail(f"expected {what} in quotes, found {self.tok.describe()}", self.tok)
         return self.advance()
 
     def expect_name(self, what: str) -> Token:
+        """Consume a name or raise a syntax error."""
         token = self.tok
         if token.kind != "ident":
             raise _Fail(f"expected {what}, found {token.describe()}", token)
@@ -125,11 +135,13 @@ class Parser:
 
     @staticmethod
     def loc(token: Token) -> Loc:
+        """The source position of a token."""
         return Loc(line=token.line, col=token.col)
 
     # -- document ------------------------------------------------------------
 
     def document(self) -> RuleDocument:
+        """Parse a whole document of rules."""
         rules: list[Rule] = []
         problems: list[Diagnostic] = []
         while self.tok.kind != "eof":
@@ -156,6 +168,7 @@ class Parser:
             self.pos += 1
 
     def rule(self) -> Rule:
+        """Parse one ``rule "name" { ... }`` block."""
         start = self.tok
         if not self.eat_word("rule"):
             raise _Fail(f"expected 'rule', found {start.describe()}", start)
@@ -304,6 +317,7 @@ class Parser:
     # -- expressions ---------------------------------------------------------
 
     def expression(self) -> Expr:
+        """Parse an expression (loosest to tightest: implies, or, and, not, comparison, arithmetic)."""
         self.depth += 1
         if self.depth > MAX_DEPTH:
             raise _Fail(f"expression is nested more than {MAX_DEPTH} levels deep", self.tok)

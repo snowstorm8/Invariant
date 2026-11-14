@@ -1,10 +1,17 @@
 """Semantic validation: a rule must make sense for the context it will run in."""
 
 import pytest
-from rule_support import BANK_SCHEMA
 
 from invariant.integrations.document_saas import SCHEMA
-from invariant.rules import RuleSet, RuleValidationError, parse_rules, rules_from_json, validate_rule, validate_rules
+from invariant.rules import (
+    RuleSet,
+    RuleValidationError,
+    parse_rules,
+    rules_from_json,
+    validate_rule,
+    validate_rules,
+)
+from rule_support import BANK_SCHEMA
 
 
 def problems(body, schema=SCHEMA, name="r"):

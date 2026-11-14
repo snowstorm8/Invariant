@@ -6,7 +6,6 @@ target is listed once, and each judges that snapshot on its own denial.
 """
 
 import pytest
-from vulnerable_saas.target import adapter_for
 
 from invariant.adapters.base import Action, Adapter, Call
 from invariant.analysis.minimizer import violates
@@ -22,6 +21,7 @@ from invariant.core.scenario import (
     UpdateDocument,
 )
 from invariant.evaluation.violations import Outcome
+from vulnerable_saas.target import adapter_for
 
 SETUP = [
     CreateOrg(ref="org0", name="a"),

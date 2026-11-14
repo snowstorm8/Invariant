@@ -31,6 +31,7 @@ class Diagnostic:
         return (", ".join(where) + ": " if where else "") + self.message
 
     def to_json(self) -> dict[str, Any]:
+        """JSON form with message, severity and position."""
         return {
             "message": self.message,
             "line": self.line,

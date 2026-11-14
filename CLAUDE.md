@@ -39,5 +39,3 @@ Pydantic + uvicorn + pytest. User docs are in `docs/` (start at `README.md`).
   (`meridian/` for the enterprise demo, one file per release flag).
 - Complete rules in `docs/*.md` are fenced as ```` ```rule ````; `tests/unit/test_docs_rules.py`
   validates them and checks they hold on the fixed Meridian build. Keep docs and tests in step.
-- Empty scaffold files (`core/config.py`, `core/context.py`, `exploration/strategies.py`,
-  `evaluation/assertions.py`, `reporting/formats.py`) are intentionally unimplemented.

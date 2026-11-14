@@ -20,6 +20,7 @@ from .reproduction import ReplayResult, replay
 
 
 def violates(result: ReplayResult, property_id: str) -> bool:
+    """True if the replay ended with ``property_id`` violated."""
     failure = result.failure
     return (
         result.valid

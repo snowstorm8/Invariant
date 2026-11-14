@@ -2,8 +2,6 @@
 
 import json
 
-from vulnerable_saas.target import adapter_for, fixed_adapter
-
 from invariant.analysis.reproduction import replay
 from invariant.core.engine import Engine
 from invariant.core.scenario import (
@@ -21,6 +19,7 @@ from invariant.integrations.document_saas import SCHEMA
 from invariant.reporting.models import Report
 from invariant.reporting.reporter import render_html, render_text
 from invariant.rules import RuleSet
+from vulnerable_saas.target import adapter_for, fixed_adapter
 
 STALE = frozenset({"stale-cache-read"})
 VIEWER = frozenset({"viewer-can-update"})
@@ -169,9 +168,8 @@ def _run_muted(flag: str) -> Engine:
     """Run a pinned Meridian scenario with every rule muted."""
     from pathlib import Path
 
-    from meridian_support import MeridianAdapter, shipped_rules
-
     from invariant.core.scenario import Scenario
+    from meridian_support import MeridianAdapter, shipped_rules
 
     path = Path(__file__).parent.parent / "regression" / "scenarios" / "meridian" / f"{flag}.json"
     scenario = Scenario.model_validate_json(path.read_text())

@@ -8,12 +8,12 @@ must pass every default rule on the build without it.
 from pathlib import Path
 
 import pytest
-from meridian_support import DEFECTS, MeridianAdapter, shipped_rules
 
 from invariant.analysis.reproduction import replay
 from invariant.core.scenario import Scenario
 from invariant.evaluation.evaluator import Evaluator
 from invariant.evaluation.violations import Outcome
+from meridian_support import DEFECTS, MeridianAdapter, shipped_rules
 
 DIR = Path(__file__).parent / "scenarios" / "meridian"
 

@@ -2,8 +2,6 @@
 
 import json
 
-from vulnerable_saas.target import adapter_for, fixed_adapter, vulnerable_adapter
-
 from invariant.analysis.reproduction import replay
 from invariant.evaluation.evaluator import Evaluator, evaluator_for_report
 from invariant.evaluation.violations import Outcome
@@ -11,6 +9,7 @@ from invariant.exploration.runner import explore
 from invariant.integrations.builtin_rules import builtin_document
 from invariant.integrations.document_saas import SCHEMA
 from invariant.rules import RuleRegistry, RuleSet, document_to_json, parse_rules
+from vulnerable_saas.target import adapter_for, fixed_adapter, vulnerable_adapter
 
 CUSTOM = '''
 rule "read-returns-own-tenant" {
@@ -86,7 +85,6 @@ def test_sequence_rule_and_several_rules_at_once():
 # -- the three original rules, now data ---------------------------------------
 
 import pytest  # noqa: E402
-from support import ScriptedAdapter, obs  # noqa: E402
 
 from invariant.adapters.base import Action  # noqa: E402
 from invariant.core.engine import Engine, InconclusiveError, PropertyViolationError  # noqa: E402
@@ -103,6 +101,7 @@ from invariant.core.scenario import (  # noqa: E402
 )
 from invariant.properties.checks import CHECKS, RuleCheck, builtin_ruleset  # noqa: E402
 from invariant.rules import RuleValidationError, rules_from_json  # noqa: E402
+from support import ScriptedAdapter  # noqa: E402
 
 SETUP = [
     CreateOrg(ref="org0", name="a"),

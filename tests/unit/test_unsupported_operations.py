@@ -1,7 +1,6 @@
 """An operation the policy has no rule for must stop the run, not pass as allowed."""
 
 import pytest
-from support import ScriptedAdapter, make_state, obs
 
 from invariant.adapters.base import Action, Observation
 from invariant.core.engine import Engine
@@ -24,6 +23,7 @@ from invariant.properties.authorization import (
     decide,
 )
 from invariant.properties.base import OrgSnapshot
+from support import ScriptedAdapter, make_state, obs
 
 
 class Mystery:

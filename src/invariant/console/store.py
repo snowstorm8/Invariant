@@ -21,6 +21,7 @@ STORE_VERSION = 1
 
 @dataclass
 class StoredRule:
+    """One rule kept in the store, with its switch and where it came from."""
     key: str
     source: str
     enabled: bool = True
@@ -30,6 +31,7 @@ class StoredRule:
 
 @dataclass
 class StoreData:
+    """The on-disk document of the store."""
     rules: list[StoredRule] = field(default_factory=list)
     disabled_builtin: list[str] = field(default_factory=list)
     next_key: int = 1
@@ -74,6 +76,7 @@ class RuleStore:
             raise ValueError(f"cannot read rule store {self.path}: {exc}") from exc
 
     def save(self) -> None:
+        """Write the store to disk atomically."""
         if self.path is None:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -90,11 +93,13 @@ class RuleStore:
             raise
 
     def new_key(self) -> str:
+        """A key not yet used by any stored rule."""
         key = f"r{self.data.next_key}"
         self.data.next_key += 1
         return key
 
     def find(self, key: str) -> StoredRule:
+        """The stored rule with this key; raises KeyError if there is none."""
         for rule in self.data.rules:
             if rule.key == key:
                 return rule

@@ -84,6 +84,7 @@ class CompiledRule:
 
     @property
     def id(self) -> str:
+        """The id reports show for this rule."""
         return self.rule.id
 
     @property
@@ -224,6 +225,7 @@ class RuleSet:
 
     @classmethod
     def from_text(cls, source: str, schema: ContextSchema) -> RuleSet:
+        """Parse and validate rule-language text against ``schema``."""
         return cls(parse_rules(source).rules, schema)
 
     @classmethod
@@ -233,6 +235,7 @@ class RuleSet:
         return cls((r for r in document.rules if r.id not in document.disabled), schema)
 
     def to_json(self) -> dict[str, Any]:
+        """The set in the JSON rule format."""
         return jsonio.document_to_json(self.rules)
 
     def __iter__(self) -> Iterator[CompiledRule]:
@@ -242,11 +245,13 @@ class RuleSet:
         return len(self.compiled)
 
     def ids(self) -> list[str]:
+        """Ids of the rules, in order."""
         return [r.id for r in self.rules]
 
 
 @dataclass
 class RegisteredRule:
+    """A rule held by a registry with its enabled switch."""
     rule: Rule
     enabled: bool = True
     #: Where the rule came from: "builtin", "authored", "imported", ...
@@ -254,6 +259,7 @@ class RegisteredRule:
 
     @property
     def source(self) -> str:
+        """The rule as rule-language text."""
         return format_rule(self.rule)
 
 
@@ -305,9 +311,11 @@ class RuleRegistry:
         return list(document.rules)
 
     def unregister(self, rule_id: str) -> None:
+        """Remove a rule; raises KeyError if absent."""
         del self._entries[self._require(rule_id)]
 
     def set_enabled(self, rule_id: str, enabled: bool) -> None:
+        """Switch a rule on or off; raises KeyError if absent."""
         self._entries[self._require(rule_id)].enabled = enabled
 
     def _require(self, rule_id: str) -> str:
@@ -325,6 +333,7 @@ class RuleRegistry:
         return len(self._entries)
 
     def get(self, rule_id: str) -> RegisteredRule:
+        """The rule with this id; raises KeyError if absent."""
         return self._entries[self._require(rule_id)]
 
     def ruleset(self) -> RuleSet:

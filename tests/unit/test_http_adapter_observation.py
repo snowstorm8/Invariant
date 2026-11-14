@@ -1,11 +1,11 @@
 """What the HTTP adapter records about a response, beyond status and body."""
 
 import httpx
-from vulnerable_saas.target import adapter_for
 
 from invariant.adapters.base import Action, Call
 from invariant.adapters.http import HttpAdapter
 from invariant.integrations.document_saas import DOCUMENT_SAAS, _cookie, _response
+from vulnerable_saas.target import adapter_for
 
 
 def adapter_returning(headers):

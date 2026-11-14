@@ -1,7 +1,6 @@
 """End to end: Invariant against the demo app, vulnerable and fixed."""
 
 import pytest
-from vulnerable_saas.target import adapter_for, fixed_adapter, vulnerable_adapter
 
 from invariant.adapters.base import Action, Adapter, Observation
 from invariant.analysis.minimizer import minimize, violates
@@ -20,6 +19,7 @@ from invariant.core.scenario import (
 from invariant.evaluation.violations import Outcome
 from invariant.exploration.runner import explore
 from invariant.exploration.state_machine import ExplorationSink, build_state_machine
+from vulnerable_saas.target import adapter_for, fixed_adapter, vulnerable_adapter
 
 SETUP = [
     CreateOrg(ref="org0", name="a"),

@@ -18,8 +18,6 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from support import make_state, obs
-from vulnerable_saas.target import adapter_for
 
 from invariant.adapters.base import Action, Adapter, Call, Observation
 from invariant.analysis.reproduction import replay
@@ -47,6 +45,8 @@ from invariant.evaluation.violations import Outcome
 from invariant.properties.authorization import decide
 from invariant.properties.base import OrgSnapshot
 from invariant.reporting.reporter import build_report
+from support import make_state, obs
+from vulnerable_saas.target import adapter_for
 
 PINNED = Path(__file__).parent.parent / "regression" / "scenarios" / "stale_cache_read.json"
 

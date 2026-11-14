@@ -25,6 +25,7 @@ from .state_machine import ExplorationSink, build_state_machine
 
 @dataclass
 class ExplorationResult:
+    """The outcome of an exploration and its report."""
     outcome: Outcome
     report: Report
 

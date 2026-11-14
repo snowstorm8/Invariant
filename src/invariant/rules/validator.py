@@ -111,6 +111,7 @@ class _RuleChecker:
     # -- reporting -----------------------------------------------------------
 
     def error(self, message: str, loc: Loc | None) -> None:
+        """Record an error diagnostic."""
         loc = loc or self.rule.loc
         self.problems.append(
             Diagnostic(
@@ -125,6 +126,7 @@ class _RuleChecker:
     # -- entry ---------------------------------------------------------------
 
     def check(self) -> list[Diagnostic]:
+        """Check the whole rule and return every diagnostic."""
         rule = self.rule
         for label, value in (("name", rule.name), ("id", rule.id)):
             if not NAME_PATTERN.fullmatch(value):
@@ -290,6 +292,7 @@ class _RuleChecker:
     # -- expressions ---------------------------------------------------------
 
     def infer(self, expr: Expr, scope: dict[str, Type]) -> Type:
+        """The static type of an expression, reporting misuse on the way."""
         match expr:
             case Literal():
                 v = expr.value

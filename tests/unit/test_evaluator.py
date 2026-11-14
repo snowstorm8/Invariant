@@ -3,13 +3,13 @@
 import json
 
 import pytest
-from support import make_state, obs
 
 from invariant.core.scenario import CreateDocument, DeleteDocument, ReadDocument, UpdateDocument
 from invariant.evaluation.evaluator import Evaluator, ExecutedStep
 from invariant.evaluation.violations import Outcome, worst
 from invariant.properties.authorization import decide
 from invariant.properties.base import OrgSnapshot
+from support import make_state, obs
 
 LEAK = {"id": "doc_6", "org_id": "org_1", "content": "secret <<INV:3>>", "version": 1}
 

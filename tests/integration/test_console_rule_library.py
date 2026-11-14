@@ -3,12 +3,12 @@
 import json
 
 import pytest
-from vulnerable_saas.target import DEFECTS, console_target
 
 from invariant.console.app import ConsoleApp, ConsoleError
 from invariant.console.store import RuleStore
 from invariant.evaluation.violations import Outcome
 from invariant.rules import ids as rule_ids
+from vulnerable_saas.target import DEFECTS, console_target
 
 SIMPLE = '''# keep this comment
 rule "no-teapots" {

@@ -23,6 +23,7 @@ ASSERTION_KINDS = ("always", "never")
 
 @dataclass(frozen=True)
 class Loc:
+    """A position in rule source (1-based line and column)."""
     line: int | None = None
     col: int | None = None
     path: str | None = None
@@ -34,6 +35,7 @@ def _loc() -> Any:
 
 @dataclass(frozen=True)
 class Literal:
+    """A constant: null, boolean, number or string."""
     value: None | bool | int | float | str
     loc: Loc | None = _loc()
 
@@ -59,6 +61,7 @@ class Ref:
 
 @dataclass(frozen=True)
 class Member:
+    """Field access, ``a.b``."""
     target: Expr
     name: str
     loc: Loc | None = _loc()
@@ -66,6 +69,7 @@ class Member:
 
 @dataclass(frozen=True)
 class Index:
+    """Indexing, ``a[i]``."""
     target: Expr
     key: Expr
     loc: Loc | None = _loc()
@@ -73,18 +77,21 @@ class Index:
 
 @dataclass(frozen=True)
 class ListExpr:
+    """A list literal."""
     items: tuple[Expr, ...]
     loc: Loc | None = _loc()
 
 
 @dataclass(frozen=True)
 class RecordExpr:
+    """A record literal."""
     fields: tuple[tuple[str, Expr], ...]
     loc: Loc | None = _loc()
 
 
 @dataclass(frozen=True)
 class Unary:
+    """``not`` or unary minus."""
     op: str
     operand: Expr
     loc: Loc | None = _loc()
@@ -92,6 +99,7 @@ class Unary:
 
 @dataclass(frozen=True)
 class Binary:
+    """A binary operator, including ``and``/``or`` and comparisons."""
     op: str
     left: Expr
     right: Expr
@@ -100,6 +108,7 @@ class Binary:
 
 @dataclass(frozen=True)
 class Call:
+    """A call of a built-in function."""
     function: str
     args: tuple[Expr, ...]
     loc: Loc | None = _loc()
@@ -144,6 +153,7 @@ Expr = (
 
 @dataclass(frozen=True)
 class Let:
+    """A named intermediate value, ``let x = ...``."""
     name: str
     value: Expr
     loc: Loc | None = _loc()
@@ -162,6 +172,7 @@ class Observe:
 
 @dataclass(frozen=True)
 class Assertion:
+    """An ``always`` or ``never`` condition."""
     kind: str  # "always" (must hold) or "never" (must not hold)
     condition: Expr
     loc: Loc | None = _loc()
@@ -177,6 +188,7 @@ class Template:
 
 @dataclass(frozen=True)
 class Rule:
+    """A complete rule: metadata, scope, observations and assertions."""
     name: str
     id: str
     description: str = ""
@@ -198,14 +210,17 @@ class Rule:
 
     @property
     def policy_key(self) -> str:
+        """The key of the policy rule this rule is bound to."""
         return self.policy if self.policy is not None else self.id
 
     @property
     def lets(self) -> tuple[Let, ...]:
+        """The rule's ``let`` clauses, in order."""
         return tuple(b for b in self.bindings if isinstance(b, Let))
 
     @property
     def observes(self) -> tuple[Observe, ...]:
+        """The rule's ``observe`` clauses, in order."""
         return tuple(b for b in self.bindings if isinstance(b, Observe))
 
 

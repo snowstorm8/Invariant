@@ -2,6 +2,7 @@
 
 import pytest
 from fastapi.testclient import TestClient
+
 from vulnerable_saas.app.main import create_app
 
 
@@ -134,7 +135,7 @@ def test_verbose_errors_confirm_existence_and_name_the_owner_only_when_switched_
 
     c, u = make({"verbose-errors"})
     did = c.post("/documents", json={"content": "s"}, headers=u["a_member"]).json()["id"]
-    org = c.post(f"/documents", json={"content": "t"}, headers=u["a_member"]).json()["org_id"]
+    org = c.post("/documents", json={"content": "t"}, headers=u["a_member"]).json()["org_id"]
     for response in (
         c.get(f"/documents/{did}", headers=u["b_member"]),
         c.put(f"/documents/{did}", json={"content": "x"}, headers=u["b_member"]),

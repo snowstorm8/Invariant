@@ -15,10 +15,10 @@ from pathlib import Path
 
 import pytest
 
+from invariant.analysis.reproduction import ReplayResult
 from invariant.core.scenario import CreateDocument, CreateOrg, Scenario
 from invariant.evaluation.violations import Outcome
 from invariant.exploration.runner import ExplorationResult
-from invariant.analysis.reproduction import ReplayResult
 from invariant.properties.registry import CATALOG
 from invariant.reporting.models import Finding, Report
 from vulnerable_saas.app.models import KNOWN_DEFECTS
@@ -62,7 +62,7 @@ def err(request=None, *, raw=None):
 
 
 def make_report(**kw):
-    base = dict(tool_version="0", target="t", outcome=Outcome.PASS, executions=0, seed=None)
+    base = {"tool_version": "0", "target": "t", "outcome": Outcome.PASS, "executions": 0, "seed": None}
     base.update(kw)
     return Report(**base)
 

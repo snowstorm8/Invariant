@@ -2,6 +2,7 @@
 
 import itertools
 import re
+from pathlib import Path
 
 import pytest
 
@@ -143,6 +144,6 @@ def test_reserved_ids_are_never_handed_out():
 
 
 def test_the_module_stands_alone():
-    source = open(ids.__file__, encoding="utf-8").read()
+    source = Path(ids.__file__).read_text(encoding="utf-8")
     imports = re.findall(r"^(?:from|import) (\S+)", source, re.MULTILINE)
     assert not [i for i in imports if i.startswith("invariant")], imports

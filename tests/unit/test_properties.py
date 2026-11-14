@@ -1,5 +1,4 @@
 import pytest
-from support import make_state
 
 from invariant.core.scenario import (
     CreateDocument,
@@ -11,6 +10,7 @@ from invariant.core.scenario import (
 )
 from invariant.properties.authorization import decide
 from invariant.properties.registry import PROPERTIES
+from support import make_state
 
 
 @pytest.mark.parametrize(

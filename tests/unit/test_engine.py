@@ -1,5 +1,4 @@
 import pytest
-from support import ScriptedAdapter, obs
 
 from invariant.adapters.base import Action, AdapterError, Call, Observation
 from invariant.core.engine import (
@@ -20,6 +19,7 @@ from invariant.core.scenario import (
 )
 from invariant.core.state import UnknownRefError
 from invariant.evaluation.violations import Outcome
+from support import ScriptedAdapter, obs
 
 WRITERS = {"admin", "member"}
 

@@ -107,10 +107,12 @@ def build_report(
 
 
 def save_report(report: Report, path: Path) -> None:
+    """Write the report as JSON."""
     path.write_text(report.model_dump_json(indent=2) + "\n")
 
 
 def load_report(path: Path) -> Report:
+    """Read a report written by ``save_report``."""
     return Report.model_validate_json(path.read_text())
 
 
@@ -133,10 +135,12 @@ def render_html(report: Report) -> str:
 
 
 def save_html(report: Report, path: Path) -> None:
+    """Write the report as a self-contained HTML page."""
     path.write_text(render_html(report), encoding="utf-8")
 
 
 def render_text(report: Report) -> str:
+    """The report as plain text for the terminal."""
     lines = [f"Invariant {report.tool_version} — target: {report.target}"]
     lines.append(f"Result: {report.outcome} ({report.executions} executions explored)")
     if report.finding is None:

@@ -28,17 +28,17 @@ from invariant.evaluation.violations import Outcome
 from invariant.exploration.runner import explore
 from invariant.integrations.builtin_rules import builtin_document, library_document
 from invariant.integrations.document_saas import SCHEMA
-from invariant.rules import jsonio
-from invariant.rules.engine import RuleSet
-from invariant.rules.errors import RuleError
-from invariant.rules.ir import Rule
-from invariant.rules.parser import parse_rules
 from invariant.reporting.reporter import (
     load_report,
     render_text,
     save_html,
     save_report,
 )
+from invariant.rules import jsonio
+from invariant.rules.engine import RuleSet
+from invariant.rules.errors import RuleError
+from invariant.rules.ir import Rule
+from invariant.rules.parser import parse_rules
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help=__doc__)
 
@@ -49,6 +49,7 @@ AppDirOpt = Annotated[Path, typer.Option(help="Directory added to sys.path befor
 
 
 def load_factory(spec: str, app_dir: Path) -> Callable[[], Adapter]:
+    """Resolve ``module:callable`` (searching ``app_dir``) to a factory producing a fresh Adapter."""
     module_name, sep, attr = spec.partition(":")
     if not sep or not module_name or not attr:
         raise typer.BadParameter("expected 'module:callable'")

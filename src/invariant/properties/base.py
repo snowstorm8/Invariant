@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class Property:
+    """Metadata of a rule as reports show it: id, name, statement, severity."""
     id: str
     name: str
     statement: str  # what the software must never allow
@@ -40,6 +41,7 @@ class Property:
 
     @property
     def policy(self) -> str:
+        """The policy key the rule is bound to."""
         return self.policy_key if self.policy_key is not None else self.id
 
     @classmethod
@@ -100,15 +102,18 @@ class Verdict:
 
 
 class SecurityProperty(ABC):
+    """A check that decides, purely, whether one step satisfies one rule."""
     def __init__(self, info: Property) -> None:
         self.info = info
 
     @property
     def id(self) -> str:
+        """The id reports show."""
         return self.info.id
 
     @property
     def policy(self) -> str:
+        """The policy key the rule is bound to."""
         return self.info.policy
 
     @abstractmethod

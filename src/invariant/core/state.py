@@ -18,12 +18,14 @@ class UnknownRefError(KeyError):
 
 @dataclass
 class OrgModel:
+    """Expected state of an organization."""
     ref: str
     external_id: str
 
 
 @dataclass
 class UserModel:
+    """Expected state of a user."""
     ref: str
     org: str  # org ref
     role: Role
@@ -33,6 +35,7 @@ class UserModel:
 
 @dataclass
 class DocModel:
+    """Expected state of a document."""
     ref: str
     org: str  # owning org ref
     external_id: str
@@ -44,23 +47,27 @@ class DocModel:
 
 @dataclass
 class ModelState:
+    """What the target should contain, updated only from operations the policy authorised."""
     orgs: dict[str, OrgModel] = field(default_factory=dict)
     users: dict[str, UserModel] = field(default_factory=dict)
     docs: dict[str, DocModel] = field(default_factory=dict)
 
     def user(self, ref: str) -> UserModel:
+        """The user with this reference; raises if unknown."""
         try:
             return self.users[ref]
         except KeyError:
             raise UnknownRefError(f"unknown user ref {ref!r}") from None
 
     def doc(self, ref: str) -> DocModel:
+        """The document with this reference; raises if unknown."""
         try:
             return self.docs[ref]
         except KeyError:
             raise UnknownRefError(f"unknown doc ref {ref!r}") from None
 
     def org(self, ref: str) -> OrgModel:
+        """The organization with this reference; raises if unknown."""
         try:
             return self.orgs[ref]
         except KeyError:

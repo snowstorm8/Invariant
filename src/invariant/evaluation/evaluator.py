@@ -24,8 +24,8 @@ from typing import Any, Literal
 from invariant.adapters.base import Observation
 from invariant.core.scenario import CreateDocument, DeleteDocument, Operation, UpdateDocument
 from invariant.core.state import ModelState, UserModel
-from invariant.properties.authorization import Decision
 from invariant.integrations.document_saas import DOCUMENT_SAAS
+from invariant.properties.authorization import Decision
 from invariant.properties.base import ProbeRequest, Property, SecurityProperty, Step
 from invariant.properties.checks import CHECKS, checks_for
 from invariant.properties.registry import EXECUTION
@@ -64,6 +64,7 @@ ProbeResult = Snapshot | ProbeFailure
 class Evaluator:
     #: Properties judged on every actor step, in evaluation order. The default
     #: is the integration's built-in rule set; ``for_rules`` replaces it.
+    """Judges every step with a set of properties: plan the probes, take them, judge, own INCONCLUSIVE."""
     properties: Sequence[SecurityProperty] = CHECKS
     #: Builds the context rules see, and the records kept of finished steps.
     binding: RuleBinding = DOCUMENT_SAAS

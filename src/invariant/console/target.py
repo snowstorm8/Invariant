@@ -29,6 +29,7 @@ class TargetOption:
 
 @dataclass(frozen=True)
 class ConsoleTarget:
+    """What the console needs from an application: name, adapter factory, optional builds, binding, close hook."""
     name: str
     #: Makes a fresh adapter for a build with exactly these options switched on.
     adapter_for: Callable[[frozenset[str]], Adapter]
@@ -40,11 +41,13 @@ class ConsoleTarget:
     close: Callable[[], None] | None = None
 
     def label(self, options: frozenset[str]) -> str:
+        """Display name: the application's own name, or name plus the chosen builds (``fixed`` if none)."""
         if not self.options:
             return self.name  # an application as it is: there are no builds to choose from
         return f"{self.name}[" + (",".join(sorted(options)) or "fixed") + "]"
 
     def parse_options(self, raw: object) -> frozenset[str]:
+        """Validate raw option ids from a request against the builds this target offers."""
         if not isinstance(raw, list) or not all(isinstance(o, str) for o in raw):
             raise ValueError("options must be a list of strings")
         chosen = frozenset(raw)

@@ -4,7 +4,6 @@ import itertools
 from dataclasses import FrozenInstanceError
 
 import pytest
-from support import make_state
 
 from invariant.core.scenario import (
     CreateDocument,
@@ -24,6 +23,7 @@ from invariant.properties.authorization import (
     decide,
 )
 from invariant.properties.registry import PROPERTIES
+from support import make_state
 
 # -- Decision ----------------------------------------------------------------
 

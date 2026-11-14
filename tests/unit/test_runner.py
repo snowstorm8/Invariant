@@ -1,11 +1,11 @@
 """explore() must surface non-security failures as INCONCLUSIVE, never PASS."""
 
 import pytest
-from support import ScriptedAdapter, obs
 
 from invariant.adapters.base import Action, AdapterError
 from invariant.evaluation.violations import Outcome
 from invariant.exploration.runner import explore
+from support import ScriptedAdapter, obs
 
 
 def handler_with_broken_reads(call):

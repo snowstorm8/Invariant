@@ -17,6 +17,7 @@ DISCLAIMER = (
 
 
 class Finding(BaseModel):
+    """One rule's failure with its minimal counterexample."""
     property_id: str
     property_name: str
     statement: str
@@ -35,6 +36,7 @@ class Finding(BaseModel):
 
 
 class Report(BaseModel):
+    """The result of an exploration: outcome, every finding, and what passed."""
     tool: str = "invariant"
     tool_version: str
     target: str

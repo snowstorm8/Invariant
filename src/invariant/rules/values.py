@@ -11,11 +11,12 @@ verdict depends on it is INCONCLUSIVE rather than PASS or VIOLATION.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator, Mapping, Sequence
-from typing import Any, Callable
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from typing import Any
 
 
 class Undefined:
+    """A value that is missing; verdicts depending on it are INCONCLUSIVE."""
     __slots__ = ("reason",)
 
     def __init__(self, reason: str) -> None:
@@ -32,18 +33,22 @@ Value = Any
 
 
 def is_number(value: object) -> bool:
+    """True for numbers (booleans are not numbers)."""
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def is_list(value: object) -> bool:
+    """True for rule lists."""
     return isinstance(value, (list, tuple))
 
 
 def is_map(value: object) -> bool:
+    """True for rule records."""
     return isinstance(value, Mapping)
 
 
 def kind_of(value: object) -> str:
+    """The rule-language name of a value's kind."""
     if isinstance(value, Undefined):
         return "undefined"
     if value is None:
@@ -133,6 +138,7 @@ class LazyContext(Mapping[str, Value]):
         self._cache: dict[str, Value] = {}
 
     def extend(self, factories: Mapping[str, Callable[[], Value]]) -> LazyContext:
+        """A context with extra lazily computed values."""
         return LazyContext(factories, parent=self)
 
     def __getitem__(self, name: str) -> Value:

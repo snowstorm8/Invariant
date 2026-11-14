@@ -46,6 +46,7 @@ class StepRecord(BaseModel):
 
     @property
     def outcome(self) -> Outcome:
+        """The worst outcome of any evaluation on this step."""
         return worst([e.outcome for e in self.evaluations])
 
 
@@ -59,6 +60,7 @@ class RunFailure(AssertionError):
 
     @property
     def scenario(self) -> Scenario:
+        """The operations executed up to and including the failing step, replayable."""
         return Scenario(operations=[r.operation for r in self.history])
 
 
@@ -75,6 +77,7 @@ class EngineInvalidatedError(RuntimeError):
 
 
 class Engine:
+    """Executes operations against an adapter, keeps the expected-state model and judges each step."""
     def __init__(
         self,
         adapter: Adapter,
@@ -120,20 +123,24 @@ class Engine:
         self._invalid = None
 
     def close(self) -> None:
+        """Close the adapter."""
         self.adapter.close()
 
     def new_ref(self, prefix: str) -> str:
+        """A fresh symbolic reference such as ``doc3``."""
         n = self._ref_counts.get(prefix, 0)
         self._ref_counts[prefix] = n + 1
         return f"{prefix}{n}"
 
     @property
     def scenario(self) -> Scenario:
+        """The operations applied so far as a Scenario."""
         return Scenario(operations=[r.operation for r in self.history])
 
     # -- execution ----------------------------------------------------------
 
     def apply(self, op: Operation) -> StepRecord:
+        """Execute one operation: decide it by policy, call the target, probe, judge, then update the model."""
         if self._invalid is not None:
             raise EngineInvalidatedError(
                 f"engine is invalid ({self._invalid}); reset() before applying more operations"

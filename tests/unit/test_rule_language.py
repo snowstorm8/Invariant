@@ -4,7 +4,14 @@ import pytest
 
 from invariant.console.app import EXAMPLES
 from invariant.integrations.builtin_rules import builtin_document
-from invariant.rules import RuleSyntaxError, format_expr, format_rule, format_rules, parse_expression, parse_rules
+from invariant.rules import (
+    RuleSyntaxError,
+    format_expr,
+    format_rule,
+    format_rules,
+    parse_expression,
+    parse_rules,
+)
 from invariant.rules.ir import (
     Assertion,
     Binary,

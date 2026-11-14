@@ -20,11 +20,13 @@ from .base import Action, Adapter, AdapterError, Call, Observation
 
 
 class HttpAdapter(Adapter):
+    """Adapter for a REST service reached over HTTP, speaking the document contract."""
     def __init__(self, client: httpx.Client, *, reset_path: str = "/_admin/reset") -> None:
         self._client = client
         self._reset_path = reset_path
 
     def reset(self) -> None:
+        """Call the reset endpoint and check that the target then reports zero entities."""
         try:
             response = self._client.post(self._reset_path)
         except httpx.HTTPError as exc:
@@ -44,6 +46,7 @@ class HttpAdapter(Adapter):
             )
 
     def execute(self, call: Call) -> Observation:
+        """Translate the call into an HTTP request; transport failures become an Observation without a status."""
         method, path, json_body = self._route(call)
         headers = {"Authorization": f"Bearer {call.credential}"} if call.credential else {}
         try:
@@ -64,6 +67,7 @@ class HttpAdapter(Adapter):
         )
 
     def close(self) -> None:
+        """Release the HTTP client; the target application itself is left running."""
         self._client.close()
 
     @staticmethod

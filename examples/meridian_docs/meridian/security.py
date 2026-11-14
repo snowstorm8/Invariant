@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from .state import Member, Platform
 
+
 def crash_page(platform: Platform, exc: Exception) -> JSONResponse:
     """What a caller gets when a handler fails."""
     body: dict[str, str] = {"detail": "internal error"}
@@ -61,7 +62,7 @@ def hardening_middleware(
     ) -> Response:
         try:
             response = await call_next(request)
-        except Exception as exc:  # noqa: BLE001 - the last line of defence for every route
+        except Exception as exc:
             response = crash_page(platform_flags(), exc)
         # Error pages are small and cacheable by design, so they are served bare.
         if response.status_code >= 400 and platform_flags().on("lean-error-pages"):

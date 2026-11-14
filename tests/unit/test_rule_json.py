@@ -272,7 +272,7 @@ def test_policy_key_defaults_to_the_id_and_is_not_printed_then():
 
 def test_tag_and_policy_mistakes_are_reported():
     from invariant.integrations.document_saas import SCHEMA
-    from invariant.rules import RuleValidationError, RuleSet
+    from invariant.rules import RuleSet, RuleValidationError
 
     def problems(extra: str) -> str:
         source = f'rule "r" {{ {extra} never response.status == 1 }}'

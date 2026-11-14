@@ -21,24 +21,29 @@ LIBRARY_FILE = "web_defaults.rules"
 
 
 def builtin_source() -> str:
+    """Rule-language text of the three core rules."""
     return resources.files("invariant.integrations").joinpath(RULE_FILE).read_text("utf-8")
 
 
 @cache
 def builtin_document() -> RuleDocument:
+    """The core rules parsed."""
     return parse_rules(builtin_source())
 
 
 def builtin_rule(rule_id: str) -> Rule:
+    """The core rule with this id; raises KeyError if unknown."""
     return next(r for r in builtin_document().rules if r.id == rule_id)
 
 
 def library_source() -> str:
+    """Rule-language text of the default web-application library."""
     return resources.files("invariant.integrations").joinpath(LIBRARY_FILE).read_text("utf-8")
 
 
 @cache
 def library_document() -> RuleDocument:
+    """The default library parsed."""
     return parse_rules(library_source())
 
 

@@ -35,9 +35,11 @@ class RuleCheck(SecurityProperty):
     def applies(self, step: Step) -> bool:
         # An undecidable scope still applies: evaluate() then reports it as
         # INCONCLUSIVE instead of silently skipping the rule.
+        """True if the rule's ``when`` holds for this step."""
         return self.rule.in_scope(self.binding.context(step, None)) is not False
 
     def requires(self, step: Step) -> tuple[ProbeRequest, ...]:
+        """The probes the rule's ``observe`` clauses need."""
         requests: list[ProbeRequest] = []
         for observe, args in self.rule.probe_arguments(self.binding.context(step, None)):
             if isinstance(args, Undefined):
@@ -48,6 +50,7 @@ class RuleCheck(SecurityProperty):
         return tuple(requests)
 
     def evaluate(self, step: Step, response: Observation, evidence: Evidence) -> Verdict:
+        """Judge the step with the rule's assertions."""
         context = self.binding.context(step, response)
         observed = {}
         for observe, args in self.rule.probe_arguments(self.binding.context(step, None)):

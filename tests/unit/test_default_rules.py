@@ -10,7 +10,6 @@ import json
 import re
 
 import pytest
-from support import make_state
 
 from invariant.adapters.base import Observation
 from invariant.core.scenario import (
@@ -32,6 +31,7 @@ from invariant.properties.authorization import decide
 from invariant.properties.base import Step
 from invariant.properties.checks import RuleCheck
 from invariant.rules import RuleSet
+from support import make_state
 
 LIBRARY = RuleSet(library_document().rules, SCHEMA)
 CHECKS = {c.id: RuleCheck(c, DOCUMENT_SAAS) for c in LIBRARY}

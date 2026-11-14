@@ -16,7 +16,9 @@ from typing import Any
 
 @dataclass(frozen=True)
 class Type:
+    """A static type of a rule value."""
     def describe(self) -> str:
+        """The type as named in diagnostics."""
         return "any"
 
 
@@ -27,30 +29,38 @@ class AnyType(Type):
 
 @dataclass(frozen=True)
 class NullType(Type):
+    """The type of null."""
     def describe(self) -> str:
+        """The type as named in diagnostics."""
         return "null"
 
 
 @dataclass(frozen=True)
 class BoolType(Type):
+    """Booleans."""
     def describe(self) -> str:
+        """The type as named in diagnostics."""
         return "bool"
 
 
 @dataclass(frozen=True)
 class NumberType(Type):
+    """Numbers."""
     integer: bool = False
 
     def describe(self) -> str:
+        """The type as named in diagnostics."""
         return "int" if self.integer else "number"
 
 
 @dataclass(frozen=True)
 class StringType(Type):
     #: If set, the only values the field can take.
+    """Strings, optionally restricted to a set of values."""
     values: tuple[str, ...] | None = None
 
     def describe(self) -> str:
+        """The type as named in diagnostics."""
         if self.values:
             return " | ".join(f'"{v}"' for v in self.values)
         return "string"
@@ -58,9 +68,11 @@ class StringType(Type):
 
 @dataclass(frozen=True)
 class ListType(Type):
+    """Lists of one element type."""
     item: Type = field(default_factory=AnyType)
 
     def describe(self) -> str:
+        """The type as named in diagnostics."""
         return f"list<{self.item.describe()}>"
 
 
@@ -71,11 +83,13 @@ class MapType(Type):
     value: Type = field(default_factory=AnyType)
 
     def describe(self) -> str:
+        """The type as named in diagnostics."""
         return f"map<{self.value.describe()}>"
 
 
 @dataclass(frozen=True)
 class Field:
+    """A named, typed member of a record."""
     type: Type
     doc: str = ""
     #: May be absent at run time; reading an absent field is *undefined*.
@@ -87,12 +101,15 @@ class Field:
 
 @dataclass(frozen=True)
 class RecordType(Type):
+    """A record with known fields."""
     fields: tuple[tuple[str, Field], ...] = ()
 
     def field(self, name: str) -> Field | None:
+        """The field with this name, or None."""
         return dict(self.fields).get(name)
 
     def describe(self) -> str:
+        """The type as named in diagnostics."""
         return "record"
 
 
@@ -105,10 +122,12 @@ STRING = StringType()
 
 
 def enum(*values: str) -> StringType:
+    """A string type restricted to ``values``."""
     return StringType(tuple(values))
 
 
 def record(**fields: Field | Type) -> RecordType:
+    """A record type from keyword fields."""
     return RecordType(
         tuple((name, f if isinstance(f, Field) else Field(f)) for name, f in fields.items())
     )

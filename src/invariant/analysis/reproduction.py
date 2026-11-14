@@ -15,6 +15,7 @@ from invariant.evaluation.violations import Outcome
 
 @dataclass
 class ReplayResult:
+    """How a replay of a scenario ended: its outcome, the failure if any, and the steps taken."""
     outcome: Outcome
     history: list[StepRecord]
     failure: RunFailure | None = None

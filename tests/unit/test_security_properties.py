@@ -1,7 +1,6 @@
 """The SecurityProperty contract and its three implementations, in isolation."""
 
 import pytest
-from support import make_state, obs
 
 from invariant.adapters.base import Observation
 from invariant.core.scenario import (
@@ -24,6 +23,7 @@ from invariant.properties.checks import (
 )
 from invariant.properties.isolation import TENANT_READ_ISOLATION, TENANT_WRITE_ISOLATION
 from invariant.properties.registry import PROPERTIES
+from support import make_state, obs
 
 TI1, TI2, AZ1 = TENANT_READ_ISOLATION_CHECK, TENANT_WRITE_ISOLATION_CHECK, ROLE_WRITE_PERMISSION_CHECK
 

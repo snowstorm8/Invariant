@@ -3,7 +3,6 @@
 import inspect
 
 import pytest
-from support import ScriptedAdapter, make_state, obs
 
 from invariant.adapters.base import Action, Observation
 from invariant.core.engine import Engine, InconclusiveError
@@ -22,6 +21,7 @@ from invariant.evaluation.violations import Outcome
 from invariant.properties.authorization import ROLE_WRITE_PERMISSION, decide
 from invariant.properties.base import OrgSnapshot, SecurityProperty, Step, Verdict
 from invariant.properties.isolation import TENANT_READ_ISOLATION, TENANT_WRITE_ISOLATION
+from support import ScriptedAdapter, make_state, obs
 
 # -- Evaluator.plan ----------------------------------------------------------
 

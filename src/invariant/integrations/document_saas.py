@@ -329,9 +329,11 @@ class DocumentSaasBinding(RuleBinding):
 
     @property
     def schema(self) -> ContextSchema:
+        """The names and types rules may read for the document contract."""
         return SCHEMA
 
     def context(self, step: Step, response: Observation | None) -> Mapping[str, Value]:
+        """Build the lazy values rules read for one step and its response."""
         planned = self._planned
         if planned is None or planned[0] is not step:
             base = LazyContext(
@@ -368,12 +370,14 @@ class DocumentSaasBinding(RuleBinding):
         return out
 
     def probe_request(self, probe: str, args: Sequence[Value]) -> ProbeRequest:
+        """The adapter call that takes the named probe."""
         if probe != "org_documents":
             raise KeyError(f"unknown probe {probe!r}")
         (org,) = args
         return OrgSnapshot(str(org))
 
     def probe_value(self, probe: str, raw: Any) -> Value:
+        """Turn a raw probe response into the value rules see."""
         return _listing(raw)
 
 

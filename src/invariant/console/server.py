@@ -28,6 +28,7 @@ LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]", "::1"})
 
 
 def console_page() -> bytes:
+    """The console page as bytes."""
     return resources.files("invariant.console").joinpath("console.html").read_bytes()
 
 
@@ -39,6 +40,7 @@ def _host_name(header: str) -> str:
 
 
 def make_handler(app: ConsoleApp, allowed_hosts: frozenset[str]) -> type[BaseHTTPRequestHandler]:
+    """Build the request handler class: loopback hosts and same-origin JSON only."""
     posts: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
         "/api/validate": app.validate,
         "/api/rules": app.save_rule,
@@ -67,7 +69,7 @@ def make_handler(app: ConsoleApp, allowed_hosts: frozenset[str]) -> type[BaseHTT
         server_version = "InvariantConsole"
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+        def log_message(self, format: str, *args: Any) -> None:
             pass  # the console is interactive; request logs are noise
 
         # -- helpers ---------------------------------------------------------
@@ -96,7 +98,7 @@ def make_handler(app: ConsoleApp, allowed_hosts: frozenset[str]) -> type[BaseHTT
 
         # -- routes ----------------------------------------------------------
 
-        def do_GET(self) -> None:  # noqa: N802
+        def do_GET(self) -> None:
             if not self._local():
                 return
             path = urlsplit(self.path).path
@@ -107,7 +109,7 @@ def make_handler(app: ConsoleApp, allowed_hosts: frozenset[str]) -> type[BaseHTT
             else:
                 self._error(HTTPStatus.NOT_FOUND, f"no such page: {path}")
 
-        def do_POST(self) -> None:  # noqa: N802
+        def do_POST(self) -> None:
             if not self._local():
                 return
             path = urlsplit(self.path).path
@@ -147,7 +149,7 @@ def make_handler(app: ConsoleApp, allowed_hosts: frozenset[str]) -> type[BaseHTT
                 self._error(HTTPStatus.BAD_REQUEST, f"invalid report: {exc.error_count()} error(s)")
             except (ValueError, KeyError) as exc:
                 self._error(HTTPStatus.BAD_REQUEST, str(exc.args[0]) if exc.args else str(exc))
-            except Exception as exc:  # noqa: BLE001 - report, do not drop the connection
+            except Exception as exc:
                 self._error(HTTPStatus.INTERNAL_SERVER_ERROR, f"{type(exc).__name__}: {exc}")
 
     return Handler

@@ -5,12 +5,12 @@ import json
 import threading
 
 import pytest
-from vulnerable_saas.target import console_target
 
 from invariant.console.app import EXAMPLES, ConsoleApp, ConsoleError
 from invariant.console.server import make_server
 from invariant.console.store import RuleStore
 from invariant.reporting.models import Report
+from vulnerable_saas.target import console_target
 
 CUSTOM = EXAMPLES[0]["source"]  # read-returns-own-tenant
 RULE_FILE = {

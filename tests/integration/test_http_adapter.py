@@ -1,10 +1,10 @@
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from vulnerable_saas.app.main import create_app
 
 from invariant.adapters.base import Action, AdapterError, Call
 from invariant.adapters.http import HttpAdapter
+from vulnerable_saas.app.main import create_app
 
 
 @pytest.fixture

@@ -104,6 +104,7 @@ def _sha256(name: str) -> int:
 
 @dataclass(frozen=True)
 class IdAlgorithm:
+    """A named way to derive a rule id from its name."""
     key: str
     label: str
     description: str

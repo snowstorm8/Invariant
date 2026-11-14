@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class Action(StrEnum):
+    """The kind of request an adapter is asked to perform."""
     CREATE_ORG = "create_org"
     CREATE_USER = "create_user"
     CREATE_DOCUMENT = "create_document"
@@ -62,15 +63,18 @@ class Observation(BaseModel):
 
     @property
     def responded(self) -> bool:
+        """True if the target answered at all (no transport error)."""
         return self.status is not None
 
     def json_body(self) -> Any | None:
+        """The response body parsed as JSON, or None if it is not valid JSON."""
         try:
             return json.loads(self.body)
         except ValueError:
             return None
 
     def excerpt(self, limit: int = 200) -> str:
+        """The start of the body, at most ``limit`` characters, for evidence and messages."""
         return self.body if len(self.body) <= limit else self.body[:limit] + "..."
 
 
@@ -79,11 +83,15 @@ class AdapterError(RuntimeError):
 
 
 class Adapter(ABC):
-    @abstractmethod
-    def reset(self) -> None: ...
+    """The contract between Invariant and a target application: reset it, send it calls, close it."""
 
     @abstractmethod
-    def execute(self, call: Call) -> Observation: ...
+    def reset(self) -> None:
+        """Return the target to an empty state; raise AdapterError if that cannot be verified."""
+
+    @abstractmethod
+    def execute(self, call: Call) -> Observation:
+        """Perform one call and report what came back; HTTP errors are observations, not exceptions."""
 
     def close(self) -> None:  # noqa: B027 - optional hook
         """Release resources. Default: nothing to release."""

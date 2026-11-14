@@ -50,6 +50,7 @@ def _precedence(expr: Expr) -> int:
 
 
 def quote(text: str, mark: str = '"') -> str:
+    """Quote text as a rule-language string literal."""
     if mark == "'":
         body = json.dumps(text, ensure_ascii=False)[1:-1].replace('\\"', '"').replace("'", "\\'")
         return f"'{body}'"
@@ -122,6 +123,7 @@ def format_template(template: Template) -> str:
 
 
 def format_rule(rule: Rule) -> str:
+    """A rule as canonical rule-language text."""
     lines = [f"rule {quote(rule.name)} {{"]
     if rule.id != rule.name:
         lines.append(f"    id {quote(rule.id)}")
@@ -157,4 +159,5 @@ def format_rule(rule: Rule) -> str:
 
 
 def format_rules(rules: list[Rule] | tuple[Rule, ...]) -> str:
+    """Several rules as canonical text separated by blank lines."""
     return "\n\n".join(format_rule(r) for r in rules) + "\n"

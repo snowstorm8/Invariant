@@ -18,12 +18,14 @@ MAX_SOURCE_CHARS = 256_000
 
 @dataclass(frozen=True)
 class Token:
+    """A lexical token with its position."""
     kind: str  # "ident" | "string" | "number" | "punct" | "eof"
     value: str | int | float
     line: int
     col: int
 
     def describe(self) -> str:
+        """The token as quoted in error messages."""
         if self.kind == "eof":
             return "end of input"
         if self.kind == "string":
