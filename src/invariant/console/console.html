@@ -717,6 +717,9 @@ $("#toolbar").addEventListener("click", (e) => {
 });
 
 const SNIPPETS = {
+  id: 'id "AB-12"',
+  tags: 'tags "access-control"',
+  policy: 'policy ""',
   description: 'description ""',
   severity: "severity high",
   when: 'when operation.type == ""',
@@ -760,7 +763,8 @@ const KEYWORDS = [
   ["true", "boolean"], ["false", "boolean"], ["null", "no value"],
 ];
 const CLAUSE_HELP = {
-  rule: 'rule "name" { … }', id: "id used in reports", description: "what must never happen", severity: "critical | high | medium | low | info",
+  rule: 'rule "name" { … }', id: "id used in reports (assigned from the name if omitted)", tags: "labels for grouping and filtering rules",
+  policy: "the reference policy's key for this rule", description: "what must never happen", severity: "critical | high | medium | low | info",
   when: "which operations the rule covers", let: "a named value", observe: "application state after the operation",
   always: "must hold", assert: "alias of always", never: "must not hold", message: "text of a finding", pass_message: "text of a pass", evidence: "evidence attached to a violation",
 };
