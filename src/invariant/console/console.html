@@ -90,6 +90,19 @@
   .gutter div.err { color: var(--danger); background: var(--danger-bg); }
   .editor textarea { border: 0; outline: 0; resize: none; background: transparent; padding: 12px; font-family: var(--mono); font-size: 13px; line-height: 20px; white-space: pre; overflow: auto; tab-size: 4; width: 100%; height: 100%; }
   .editor textarea[readonly] { color: var(--muted); }
+  .editor { position: relative; }
+  .toolbar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  .toolbar .sep { width: 1px; height: 18px; background: var(--border-strong); margin: 0 4px; }
+  .toolbar select { background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; padding: 3px 6px; font-size: 12px; }
+  .toolbar .note { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .ac { position: absolute; z-index: 20; min-width: 240px; max-width: min(480px, 92%); max-height: 232px; overflow-y: auto; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4); padding: 4px; font-family: var(--mono); font-size: 12px; }
+  .ac .it { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 4px 8px; border-radius: 6px; cursor: pointer; }
+  .ac .it[aria-selected="true"] { background: var(--ok-bg); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 35%, transparent); }
+  .ac .kind { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); }
+  .ac .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ac .lbl b { color: var(--ok); font-weight: 600; }
+  .ac .det { grid-column: 2; color: var(--muted); font-family: var(--sans); font-size: 11px; white-space: normal; }
+  .ac .foot { padding: 4px 8px 2px; color: var(--dim); font-family: var(--sans); font-size: 10px; }
   .status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; font-size: 12px; flex-wrap: wrap; }
   ul.diags { list-style: none; margin: 0; padding: 0 8px 8px; display: grid; gap: 4px; }
   .diag { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; width: 100%; text-align: left; background: var(--danger-bg); border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent); border-radius: 8px; padding: 8px 10px; }
@@ -200,9 +213,28 @@
               <button class="btn danger sm" id="delete-btn">Delete</button>
             </div>
           </div>
-          <div class="editor">
+          <div class="toolbar" id="toolbar" role="toolbar" aria-label="Editor tools">
+            <button class="btn ghost sm" data-act="undo" data-write title="Undo (Ctrl/⌘+Z)">Undo</button>
+            <button class="btn ghost sm" data-act="redo" data-write title="Redo (Ctrl/⌘+Shift+Z)">Redo</button>
+            <span class="sep"></span>
+            <button class="btn ghost sm" data-act="cut" data-write title="Cut the selection (Ctrl/⌘+X)">Cut</button>
+            <button class="btn ghost sm" data-act="copy" title="Copy the selection, or everything if nothing is selected (Ctrl/⌘+C)">Copy</button>
+            <button class="btn ghost sm" data-act="paste" data-write title="Paste from the clipboard (Ctrl/⌘+V)">Paste</button>
+            <button class="btn ghost sm" data-act="selectall" title="Select all (Ctrl/⌘+A)">Select all</button>
+            <span class="sep"></span>
+            <button class="btn ghost sm" data-act="comment" data-write title="Comment or uncomment the selected lines (Ctrl/⌘+/)">Comment</button>
+            <select id="snippet" data-write aria-label="Insert a clause" title="Insert a clause at the cursor">
+              <option value="">Insert clause…</option>
+            </select>
+            <span class="sep"></span>
+            <button class="btn ghost sm" data-act="download" title="Download the definition as a file">Download</button>
+            <button class="btn danger sm" data-act="clear" data-write title="Remove all text (can be undone with Undo)">Clear</button>
+            <span class="note" id="tool-note" role="status" aria-live="polite">Ctrl+Space: suggestions</span>
+          </div>
+          <div class="editor" id="editor-box">
             <div class="gutter" id="gutter" aria-hidden="true"></div>
-            <textarea id="source" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Rule definition" aria-describedby="status-text"></textarea>
+            <textarea id="source" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Rule definition" aria-describedby="status-text" aria-autocomplete="list" aria-controls="ac-list" aria-expanded="false"></textarea>
+            <div class="ac" id="ac-list" role="listbox" aria-label="Suggestions" hidden></div>
           </div>
           <div class="status">
             <span id="status-text" class="muted" role="status" aria-live="polite">Loading…</span>
@@ -386,6 +418,8 @@ function renderEditor() {
   $("#delete-btn").hidden = !rule || !canEdit;
   $("#duplicate-btn").textContent = rule && !canEdit ? "Duplicate to edit" : "Duplicate";
   $("#duplicate-btn").hidden = !rule;
+  updateTools();
+  acClose();
   renderGutter();
 }
 
@@ -413,18 +447,421 @@ $("#source").addEventListener("input", () => {
 $("#source").addEventListener("scroll", () => { $("#gutter").scrollTop = $("#source").scrollTop; });
 $("#source").addEventListener("keydown", (e) => {
   const el = e.target;
-  if (e.key === "Tab" && !e.shiftKey && !el.readOnly && !e.altKey && !e.ctrlKey && !e.metaKey) {
-    e.preventDefault();
-    el.setRangeText("    ", el.selectionStart, el.selectionEnd, "end");
-    el.dispatchEvent(new Event("input"));
+  const mod = e.metaKey || e.ctrlKey;
+  if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); return; }
+
+  // Suggestion popup keys come first.
+  if (ac.open) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); acMove(e.key === "ArrowDown" ? 1 : -1); return; }
+    if ((e.key === "Enter" || e.key === "Tab") && !mod && !e.shiftKey) { e.preventDefault(); acAccept(); return; }
+    if (e.key === "Escape") { e.preventDefault(); acClose(); return; }
   }
-  if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); }
+  if ((e.ctrlKey && e.code === "Space") || (e.altKey && e.key === "/")) { e.preventDefault(); acUpdate(true); return; }
+  if (el.readOnly) return;
+
+  if (mod && e.key === "/") { e.preventDefault(); toggleComment(); return; }
+  if (e.key === "Tab" && !mod && !e.altKey) {
+    e.preventDefault();
+    const multi = el.value.slice(el.selectionStart, el.selectionEnd).includes("\n");
+    if (multi || e.shiftKey) shiftLines(e.shiftKey ? -1 : 1);
+    else insertText("    ");
+    return;
+  }
+  if (e.key === "Enter" && !mod && !e.shiftKey && !e.altKey) {
+    // Keep the indentation of the current line; indent one more level after "{".
+    const pos = el.selectionStart;
+    const lineStart = el.value.lastIndexOf("\n", pos - 1) + 1;
+    const before = el.value.slice(lineStart, pos);
+    const indent = /^[ \t]*/.exec(before)[0];
+    const opens = before.trimEnd().endsWith("{");
+    const closes = el.value.slice(el.selectionEnd).trimStart().startsWith("}") && /^[ \t]*$/.test(el.value.slice(el.selectionEnd, el.value.indexOf("}", el.selectionEnd)));
+    e.preventDefault();
+    if (opens && closes) {
+      insertText("\n" + indent + "    \n" + indent);
+      el.setSelectionRange(pos + 1 + indent.length + 4, pos + 1 + indent.length + 4);
+    } else insertText("\n" + indent + (opens ? "    " : ""));
+  }
 });
 for (const type of ["keyup", "click", "input"]) $("#source").addEventListener(type, () => {
   const el = $("#source");
   const before = el.value.slice(0, el.selectionStart).split("\n");
   $("#cursor-pos").textContent = `line ${before.length}, col ${before[before.length - 1].length + 1}`;
 });
+
+// ------------------------------------------------------------ editor tools
+function insertText(text) {
+  const el = $("#source");
+  el.focus();
+  // execCommand keeps the browser's undo history; setRangeText is the fallback.
+  if (!document.execCommand("insertText", false, text)) {
+    el.setRangeText(text, el.selectionStart, el.selectionEnd, "end");
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+}
+
+function replaceRange(start, end, text) {
+  const el = $("#source");
+  el.focus();
+  el.setSelectionRange(start, end);
+  insertText(text);
+}
+
+let noteTimer = null;
+function flash(message) {
+  const note = $("#tool-note");
+  note.textContent = message;
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => { note.textContent = "Ctrl+Space: suggestions"; }, 2200);
+}
+
+/** The lines touched by the selection, as [start, end) offsets. */
+function selectedLines() {
+  const el = $("#source");
+  const start = el.value.lastIndexOf("\n", el.selectionStart - 1) + 1;
+  let end = el.selectionEnd;
+  if (end > el.selectionStart && el.value[end - 1] === "\n") end -= 1;   // a selection ending at a line start
+  const nl = el.value.indexOf("\n", end);
+  return [start, nl === -1 ? el.value.length : nl];
+}
+
+function transformLines(fn) {
+  const el = $("#source");
+  const [start, end] = selectedLines();
+  const lines = el.value.slice(start, end).split("\n");
+  const out = fn(lines);
+  replaceRange(start, end, out.join("\n"));
+  el.setSelectionRange(start, start + out.join("\n").length);
+}
+
+function shiftLines(dir) {
+  transformLines((lines) => lines.map((l) => dir > 0 ? (l.trim() ? "    " + l : l) : l.replace(/^( {1,4}|\t)/, "")));
+}
+
+function toggleComment() {
+  transformLines((lines) => {
+    const body = lines.filter((l) => l.trim());
+    const allCommented = body.length > 0 && body.every((l) => /^\s*#/.test(l));
+    return lines.map((l) => {
+      if (!l.trim()) return l;
+      return allCommented ? l.replace(/^(\s*)# ?/, "$1") : l.replace(/^(\s*)/, "$1# ");
+    });
+  });
+}
+
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; }
+  catch (err) { return document.execCommand("copy"); }
+}
+
+async function toolAction(act) {
+  const el = $("#source");
+  const selected = el.value.slice(el.selectionStart, el.selectionEnd);
+  switch (act) {
+    case "undo": el.focus(); document.execCommand("undo"); break;
+    case "redo": el.focus(); document.execCommand("redo"); break;
+    case "selectall": el.focus(); el.select(); break;
+    case "copy": {
+      const text = selected || el.value;
+      if (!text) { flash("Nothing to copy"); break; }
+      flash(await copyText(text) ? (selected ? "Copied selection" : "Copied everything") : "Copy was blocked by the browser");
+      break;
+    }
+    case "cut":
+      if (!selected) { flash("Select some text to cut"); break; }
+      flash(await copyText(selected) ? "Cut" : "Copy was blocked by the browser");
+      el.focus(); document.execCommand("delete");
+      break;
+    case "paste":
+      try { const text = await navigator.clipboard.readText(); el.focus(); insertText(text); flash("Pasted"); }
+      catch (err) { el.focus(); flash("The browser blocked clipboard access. Press Ctrl/⌘+V instead."); }
+      break;
+    case "comment": el.focus(); toggleComment(); break;
+    case "clear":
+      if (!el.value) break;
+      el.focus(); el.select();
+      if (!document.execCommand("delete")) { el.value = ""; el.dispatchEvent(new Event("input", { bubbles: true })); }
+      flash("Cleared. Undo brings it back.");
+      break;
+    case "download": {
+      const rule = current();
+      const json = state.view === "json";
+      download(`${rule ? rule.name : "rule"}.${json ? "json" : "rules"}`, el.value, json ? "application/json" : "text/plain");
+      break;
+    }
+  }
+}
+$("#toolbar").addEventListener("mousedown", (e) => { if (e.target.closest("button")) e.preventDefault(); });   // keep selection and focus
+$("#toolbar").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-act]");
+  if (b && !b.disabled) toolAction(b.dataset.act);
+});
+
+const SNIPPETS = {
+  description: 'description ""',
+  severity: "severity high",
+  when: 'when operation.type == ""',
+  let: "let name = ",
+  observe: "observe name = probe()",
+  always: "always ",
+  never: "never ",
+  message: 'message ""',
+  evidence: "evidence { key: actor.ref }",
+};
+$("#snippet").append(...Object.keys(SNIPPETS).map((k) => h("option", { value: k }, k)));
+$("#snippet").addEventListener("change", (e) => {
+  const key = e.target.value;
+  e.target.value = "";
+  if (!key) return;
+  const el = $("#source");
+  const lineStart = el.value.lastIndexOf("\n", el.selectionStart - 1) + 1;
+  const indent = /^[ \t]*/.exec(el.value.slice(lineStart, el.selectionStart))[0] || "    ";
+  const onBlank = !el.value.slice(lineStart, el.selectionStart).trim() && !el.value.slice(el.selectionEnd, el.value.indexOf("\n", el.selectionEnd) === -1 ? undefined : el.value.indexOf("\n", el.selectionEnd)).trim();
+  const text = SNIPPETS[key];
+  el.focus();
+  insertText(onBlank ? text : "\n" + indent + text);
+  // Put the cursor inside quotes/parentheses or at the placeholder.
+  const q = text.indexOf('""');
+  const p = text.indexOf("()");
+  const back = q >= 0 ? text.length - q - 1 : p >= 0 ? text.length - p - 1 : 0;
+  el.setSelectionRange(el.selectionStart - back, el.selectionStart - back);
+});
+
+function updateTools() {
+  const ro = $("#source").readOnly;
+  for (const b of document.querySelectorAll("#toolbar [data-write]")) b.disabled = ro;
+}
+
+// ------------------------------------------------------------ autocomplete
+const KEYWORDS = [
+  ["and", "both conditions hold"], ["or", "either condition holds"], ["not", "negate a condition"],
+  ["implies", "if the left holds, the right must"], ["in", "membership, or iterate: some x in xs"],
+  ["some", "some x in xs : condition"], ["every", "every x in xs : condition"], ["none", "none x in xs : condition"],
+  ["where", "filter in a comprehension"], ["for", "[expr for x in xs where cond]"],
+  ["true", "boolean"], ["false", "boolean"], ["null", "no value"],
+];
+const CLAUSE_HELP = {
+  rule: 'rule "name" { … }', id: "id used in reports", description: "what must never happen", severity: "critical | high | medium | low | info",
+  when: "which operations the rule covers", let: "a named value", observe: "application state after the operation",
+  always: "must hold", assert: "alias of always", never: "must not hold", message: "text of a finding", pass_message: "text of a pass", evidence: "evidence attached to a violation",
+};
+const ac = { open: false, items: [], index: 0, from: 0, to: 0 };
+let acModel = null;
+
+function buildAcModel() {
+  const lang = state.boot.language;
+  const enums = new Map();
+  const collect = (fields) => { for (const f of fields) {
+    for (const m of f.type.matchAll(/"([^"]+)"/g)) if (!enums.has(m[1])) enums.set(m[1], f.name);
+    collect(f.fields);
+  } };
+  collect(lang.schema.roots);
+  acModel = {
+    roots: lang.schema.roots,
+    probes: lang.schema.probes,
+    functions: lang.functions.map((f) => ({ name: f.signature.split("(")[0].trim(), signature: f.signature, doc: f.doc })),
+    clauses: lang.clauses,
+    severities: lang.severities,
+    enums: [...enums].map(([value, field]) => ({ value, field })),
+  };
+}
+
+/** What the text before the cursor says about where we are: in a string, in a comment, or in code. */
+function scanContext(before) {
+  let quote = null, strStart = -1;
+  for (let i = 0; i < before.length; i++) {
+    const c = before[i];
+    if (quote) { if (c === "\\") i++; else if (c === quote) quote = null; continue; }
+    if (c === '"' || c === "'") { quote = c; strStart = i; }
+    else if (c === "#" || (c === "/" && before[i + 1] === "/")) return { comment: true };
+  }
+  return quote ? { quote, strStart } : {};
+}
+
+function localNames(text) {
+  const names = new Map();
+  const add = (re, kind) => { for (const m of text.matchAll(re)) if (!names.has(m[1])) names.set(m[1], kind); };
+  add(/^\s*let\s+([A-Za-z_]\w*)/gm, "let");
+  add(/^\s*observe\s+([A-Za-z_]\w*)/gm, "observe");
+  add(/\b(?:some|every|none)\s+([A-Za-z_]\w*)\s+in\b/g, "variable");
+  add(/\bfor\s+([A-Za-z_]\w*)\s+in\b/g, "variable");
+  return names;
+}
+
+function fieldsAt(parts) {
+  let fields = acModel.roots;
+  for (const part of parts) {
+    const node = fields.find((f) => f.name === part);
+    if (!node) return null;
+    fields = node.fields;
+  }
+  return fields;
+}
+
+function acCandidates(el, manual) {
+  const pos = el.selectionStart;
+  if (pos !== el.selectionEnd) return null;
+  const text = el.value;
+  const lineStart = text.lastIndexOf("\n", pos - 1) + 1;
+  let before = text.slice(lineStart, pos);
+  const ctx = scanContext(before);
+  if (ctx.comment) return null;
+
+  let items = [];
+  let partial = "";
+
+  const inString = ctx.quote != null;
+  const interpolating = inString && /\{[^{}]*$/.test(before.slice(ctx.strStart + 1)) && !/\{\{[^{}]*$/.test(before.slice(ctx.strStart + 1));
+  if (inString && !interpolating) {
+    partial = /[\w.\-]*$/.exec(before)[0];
+    const heading = before.slice(0, ctx.strStart).trimEnd();
+    if (!partial && !manual && !/(==|!=|\bin)$/.test(heading)) return null;
+    if (/^\s*(message|pass_message|description|id)$/.test(heading) || /^\s*rule$/.test(heading)) return null;
+    items = acModel.enums.map((e) => ({ kind: "value", label: e.value, insert: e.value, detail: `a value of ${e.field}` }));
+    return { items: rank(items, partial), partial };
+  }
+  if (interpolating) before = before.slice(before.lastIndexOf("{") + 1);
+
+  const m = /((?:[A-Za-z_]\w*(?:\[[^\]\n]*\])*\.)*)([A-Za-z_]\w*)?$/.exec(before);
+  const prefix = m ? m[1] : "";
+  partial = m && m[2] ? m[2] : "";
+  if (!manual && !partial && !prefix) return null;
+
+  if (prefix) {
+    const parts = prefix.slice(0, -1).split(".").map((p) => p.replace(/\[[^\]]*\]/g, ""));
+    const fields = fieldsAt(parts);
+    if (!fields) return null;
+    items = fields.map((f) => ({ kind: "field", label: f.name, insert: f.name, detail: `${f.type}${f.doc ? " — " + f.doc : ""}`, optional: f.optional }));
+    return { items: rank(items, partial), partial };
+  }
+
+  // Severity values after the clause name.
+  const sev = /^\s*severity\s+(\w*)$/.exec(before);
+  if (sev) {
+    partial = sev[1];
+    return { items: rank(acModel.severities.map((s) => ({ kind: "severity", label: s, insert: s, detail: "" })), partial), partial };
+  }
+
+  const atLineStart = before.slice(0, before.length - partial.length).trim() === "";
+  if (atLineStart) {
+    items.push(...acModel.clauses.map((c) => ({
+      kind: "clause", label: c, insert: c === "rule" ? 'rule "' : ["id", "description", "message", "pass_message"].includes(c) ? c + ' "' : c === "evidence" ? "evidence { " : c + " ",
+      detail: CLAUSE_HELP[c] || "",
+    })));
+  }
+  for (const [name, kind] of localNames(text)) items.push({ kind, label: name, insert: name, detail: kind === "variable" ? "bound by a quantifier or comprehension" : `defined by ${kind}` });
+  items.push(...acModel.roots.map((r) => ({ kind: "root", label: r.name, insert: r.name, detail: `${r.type} — ${r.doc}` })));
+  items.push(...acModel.functions.map((f) => ({ kind: "function", label: f.signature, insert: f.name + "()", detail: f.doc, caretBack: 1, match: f.name })));
+  if (/\bobserve\s+\w+\s*=\s*\w*$/.test(before)) {
+    items = acModel.probes.map((p) => ({ kind: "probe", label: `${p.name}(${p.params.map((a) => a.name).join(", ")})`, insert: p.name + "()", detail: p.doc, caretBack: p.params.length ? 1 : 0, match: p.name }));
+  } else {
+    items.push(...KEYWORDS.map(([k, d]) => ({ kind: "keyword", label: k, insert: k + " ", detail: d })));
+  }
+  return { items: rank(items, partial), partial };
+}
+
+function rank(items, partial) {
+  const p = partial.toLowerCase();
+  if (!p) return items.slice(0, 40);
+  const key = (i) => (i.match || i.label).toLowerCase();
+  const starts = items.filter((i) => key(i).startsWith(p));
+  const rest = items.filter((i) => !key(i).startsWith(p) && key(i).includes(p));
+  return [...starts, ...rest].slice(0, 40);
+}
+
+function acUpdate(manual) {
+  const el = $("#source");
+  if (el.readOnly || !state.boot) return acClose();
+  if (!acModel) buildAcModel();
+  const found = acCandidates(el, manual === true);
+  if (!found || !found.items.length) return acClose();
+  // A lone suggestion that is already fully typed has nothing left to offer.
+  if (found.items.length === 1 && found.items[0].insert === found.partial && !manual) return acClose();
+  ac.items = found.items;
+  ac.index = 0;
+  ac.to = el.selectionStart;
+  ac.from = ac.to - found.partial.length;
+  ac.partial = found.partial;
+  acRender();
+  acPlace();
+}
+
+function acRender() {
+  const box = $("#ac-list");
+  const nodes = ac.items.map((it, i) => {
+    const label = it.label;
+    const at = ac.partial ? label.toLowerCase().indexOf(ac.partial.toLowerCase()) : -1;
+    const lbl = at >= 0
+      ? h("span", { class: "lbl" }, label.slice(0, at), h("b", {}, label.slice(at, at + ac.partial.length)), label.slice(at + ac.partial.length))
+      : h("span", { class: "lbl" }, label);
+    return h("div", { class: "it", role: "option", id: `ac-${i}`, "aria-selected": String(i === ac.index), dataset: { i } },
+      h("span", { class: "kind" }, it.kind), lbl,
+      it.detail ? h("span", { class: "det" }, it.detail.length > 140 ? it.detail.slice(0, 137) + "…" : it.detail) : null);
+  });
+  box.replaceChildren(...nodes, h("div", { class: "foot" }, "↑↓ choose · Enter or Tab insert · Esc close"));
+  box.hidden = false;
+  ac.open = true;
+  $("#source").setAttribute("aria-expanded", "true");
+  $("#source").setAttribute("aria-activedescendant", `ac-${ac.index}`);
+}
+
+function acPlace() {
+  const el = $("#source");
+  const box = $("#ac-list");
+  const wrap = $("#editor-box");
+  const cs = getComputedStyle(el);
+  const ctx = (acPlace.ctx ||= document.createElement("canvas").getContext("2d"));
+  ctx.font = `${cs.fontSize} ${cs.fontFamily}`;
+  const charW = ctx.measureText("M").width;
+  const before = el.value.slice(0, ac.from).split("\n");
+  const gutterW = $("#gutter").offsetWidth;
+  const lineH = parseFloat(cs.lineHeight) || 20;
+  const x = gutterW + parseFloat(cs.paddingLeft) + before[before.length - 1].length * charW - el.scrollLeft;
+  const y = parseFloat(cs.paddingTop) + (before.length - 1) * lineH - el.scrollTop;
+  box.style.left = Math.max(gutterW, Math.min(x, wrap.clientWidth - box.offsetWidth - 8)) + "px";
+  const below = y + lineH + 2;
+  // Flip above the line when there is no room underneath.
+  box.style.top = (below + box.offsetHeight > wrap.clientHeight && y - box.offsetHeight - 2 > -40 ? y - box.offsetHeight - 2 : below) + "px";
+}
+
+function acMove(dir) {
+  ac.index = (ac.index + dir + ac.items.length) % ac.items.length;
+  for (const n of $("#ac-list").querySelectorAll(".it")) n.setAttribute("aria-selected", String(Number(n.dataset.i) === ac.index));
+  const cur = $(`#ac-${ac.index}`);
+  cur.scrollIntoView({ block: "nearest" });
+  $("#source").setAttribute("aria-activedescendant", cur.id);
+}
+
+function acClose() {
+  if (!ac.open && $("#ac-list").hidden) return;
+  ac.open = false;
+  $("#ac-list").hidden = true;
+  $("#source").setAttribute("aria-expanded", "false");
+  $("#source").removeAttribute("aria-activedescendant");
+}
+
+function acAccept(i) {
+  const item = ac.items[i == null ? ac.index : i];
+  if (!item) return acClose();
+  const el = $("#source");
+  const from = ac.from;
+  acClose();
+  replaceRange(from, ac.to, item.insert);
+  if (item.caretBack) el.setSelectionRange(el.selectionStart - item.caretBack, el.selectionStart - item.caretBack);
+  el.focus();
+}
+
+$("#ac-list").addEventListener("mousedown", (e) => {
+  e.preventDefault();   // keep focus in the editor
+  const row = e.target.closest(".it");
+  if (row) acAccept(Number(row.dataset.i));
+});
+$("#source").addEventListener("input", (e) => {
+  // Only typing and deleting open suggestions; programmatic edits do not.
+  if (e.inputType === "insertText" || e.inputType === "deleteContentBackward") acUpdate(false); else acClose();
+});
+$("#source").addEventListener("blur", acClose);
+$("#source").addEventListener("scroll", acClose);
+$("#source").addEventListener("mousedown", acClose);
 
 let validation = 0;
 async function validateNow() {
